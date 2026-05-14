@@ -141,6 +141,22 @@ func (p *AccountPool) SetModelList(accountID string, modelIDs []string) {
 	p.mu.Unlock()
 }
 
+// GetModelList 返回该账号缓存的模型 ID 列表（供 admin API 使用）。
+// 若尚无缓存则返回空切片。
+func (p *AccountPool) GetModelList(accountID string) []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	set, ok := p.modelLists[accountID]
+	if !ok || len(set) == 0 {
+		return []string{}
+	}
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // accountHasModel 检查账号是否支持指定模型。
 // 若该账号尚无模型列表（冷启动），视为支持所有模型。
 func (p *AccountPool) accountHasModel(accountID, model string) bool {

@@ -1041,21 +1041,6 @@
                 <button class="btn btn-primary" onclick="changePassword()" data-i18n="settings.changePassword"></button>
             </div>
             <div class="card">
-                <div class="card-header"><span class="card-title" data-i18n="settings.testSettings"></span></div>
-                <div class="form-group">
-                    <label data-i18n="settings.testModel"></label>
-                    <select id="testModelSelect" onchange="localStorage.setItem('kiro-test-model', this.value); testModel = this.value;">
-                        <option value="claude-opus-4.6">claude-opus-4.6</option>
-                        <option value="claude-opus-4.7">claude-opus-4.7</option>
-                        <option value="claude-sonnet-4.6">claude-sonnet-4.6</option>
-                        <option value="claude-sonnet-4">claude-sonnet-4</option>
-                        <option value="claude-haiku-4.5">claude-haiku-4.5</option>
-                        <option value="deepseek-3.2">deepseek-3.2</option>
-                    </select>
-                    <small style="color:#64748b;font-size:12px;margin-top:4px;display:block" data-i18n="settings.testModelHint"></small>
-                </div>
-            </div>
-            <div class="card">
                 <div class="card-header"><span class="card-title" data-i18n="settings.proxySettings"></span></div>
                 <div class="form-group">
                     <label data-i18n="settings.proxyType"></label>
@@ -1438,9 +1423,7 @@
                 'accounts.testing': '测试中...',
                 'accounts.testSuccess': '测试成功',
                 'accounts.testFailed': '测试失败',
-                'settings.testModel': '测试模型',
-                'settings.testSettings': '测试设置',
-                'settings.testModelHint': '选择发送测试请求时使用的模型',
+                'accounts.selectModel': '选择测试模型',
                 'detail.save': '保存',
                 'detail.overageWeight': '超额调用权重',
                 'accounts.testLog.title': '测试日志',
@@ -1714,9 +1697,7 @@
                 'accounts.testing': 'Testing...',
                 'accounts.testSuccess': 'Test OK',
                 'accounts.testFailed': 'Test Failed',
-                'settings.testModel': 'Test Model',
-                'settings.testSettings': 'Test Settings',
-                'settings.testModelHint': 'Select the model to use for test requests',
+                'accounts.selectModel': 'Select Test Model',
                 'detail.save': 'Save',
                 'detail.overageWeight': 'Overage Weight',
                 'accounts.testLog.title': 'Test Log',
@@ -1937,8 +1918,6 @@
                 selectedAccounts.clear();
             }
             renderAccounts();
-            setTimeout(function() { var sel = document.getElementById("testModelSelect"); if (sel) sel.value = testModel; }, 500);
-            
             updateBatchBar();
         }
         function toggleSelectAccount(id) {
@@ -2275,8 +2254,7 @@
                 if (d.success) { alert(t('detail.proxySaved')); loadAccounts(); } else { alert(t('detail.saveFailed') + ': ' + d.error); }
             } catch (e) { alert(t('detail.saveFailed')); }
         }
-        // 测试模型和日志
-        let testModel = localStorage.getItem('kiro-test-model') || 'claude-opus-4.6';
+        // 测试日志
         let testLogs = [];
         
         function getTestLogPanel() {
@@ -2318,23 +2296,70 @@
         async function testAccount(id) {
             const btn = document.getElementById('test-' + id);
             if (!btn) return;
+            const ex = document.getElementById('testModelPopover');
+            if (ex) ex.remove();
+            let models = [];
+            try {
+                const res = await fetch('/admin/api/accounts/' + id + '/models/cached', {
+                    headers: { 'X-Admin-Password': password }
+                });
+                const d = await res.json();
+                models = Array.isArray(d.models) ? d.models : [];
+            } catch (e) { /* fallback to empty */ }
+
+            const rect = btn.getBoundingClientRect();
+            const top = Math.min(rect.bottom + 6, window.innerHeight - 160);
+            const left = Math.max(4, Math.min(rect.left, window.innerWidth - 280));
+            let inputHtml;
+            if (models.length > 0) {
+                models.sort();
+                inputHtml = '<select id="testModelChoice" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;background:#fff">' +
+                    models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('') +
+                    '</select>';
+            } else {
+                inputHtml = '<input type="text" id="testModelChoice" placeholder="claude-sonnet-4" value="claude-sonnet-4" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;box-sizing:border-box;">';
+            }
+            const popover = document.createElement('div');
+            popover.id = 'testModelPopover';
+            popover.style.cssText = 'position:fixed;inset:0;z-index:9998;';
+            popover.innerHTML =
+                '<div onclick="event.stopPropagation()" style="position:fixed;top:' + top + 'px;left:' + left + 'px;background:#fff;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:16px;width:264px;">' +
+                '<div style="font-weight:600;font-size:13px;margin-bottom:10px;">' + t('accounts.selectModel') + '</div>' +
+                inputHtml +
+                '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">' +
+                '<button onclick="closeTestModelPopover()" style="padding:5px 14px;border:1px solid #e2e8f0;border-radius:5px;background:#fff;cursor:pointer;font-size:12px;">' + t('common.cancel') + '</button>' +
+                '<button onclick="confirmTestAccount(\'' + id + '\')" style="padding:5px 14px;border:none;border-radius:5px;background:#2563eb;color:#fff;cursor:pointer;font-size:12px;">' + t('accounts.test') + '</button>' +
+                '</div></div>';
+            popover.addEventListener('click', function(e) { if (e.target === popover) closeTestModelPopover(); });
+            document.body.appendChild(popover);
+        }
+        function closeTestModelPopover() {
+            const p = document.getElementById('testModelPopover');
+            if (p) p.remove();
+        }
+        async function confirmTestAccount(id) {
+            const choice = document.getElementById('testModelChoice');
+            const model = (choice ? choice.value.trim() : '') || 'claude-sonnet-4';
+            closeTestModelPopover();
+            await runTestAccount(id, model);
+        }
+        async function runTestAccount(id, model) {
+            const btn = document.getElementById('test-' + id);
+            if (!btn) return;
             const origText = btn.textContent;
             btn.textContent = t('accounts.testing');
             btn.disabled = true;
             btn.style.background = '#6b7280';
-            
             const acc = accountsData.find(a => a.id === id);
             const email = acc ? acc.email : id;
             const proxy = acc ? (acc.proxyURL || t('accounts.testLog.globalProxy')) : '?';
-            
-            addTestLog(t('accounts.testLog.start', email, testModel, proxy), 'info');
-            
+            addTestLog(t('accounts.testLog.start', email, model, proxy), 'info');
             try {
                 const startTime = Date.now();
                 const res = await fetch('/admin/api/accounts/' + id + '/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
-                    body: JSON.stringify({ model: testModel })
+                    body: JSON.stringify({ model })
                 });
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                 const d = await res.json();
@@ -2387,8 +2412,6 @@
             document.getElementById('requireApiKey').checked = d.requireApiKey;
             document.getElementById('apiKeyInput').value = d.apiKey || '';
             document.getElementById('allowOverUsage').checked = d.allowOverUsage || false;
-            const sel = document.getElementById('testModelSelect');
-            if (sel) sel.value = testModel;
             loadThinkingConfig();
             loadEndpointConfig();
             loadProxyConfig();

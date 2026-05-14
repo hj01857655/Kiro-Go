@@ -1925,6 +1925,9 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/test") && r.Method == "POST":
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/test")
 		h.apiTestAccount(w, r, id)
+	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/models/cached") && r.Method == "GET":
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/models/cached")
+		h.apiGetAccountModelsCached(w, r, id)
 	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/models") && r.Method == "GET":
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/models")
 		h.apiGetAccountModels(w, r, id)
@@ -2990,6 +2993,15 @@ func (h *Handler) apiGetAccountModels(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"models":  models,
+	})
+}
+
+// apiGetAccountModelsCached 返回账号已缓存的模型列表（不实时拉取）
+func (h *Handler) apiGetAccountModelsCached(w http.ResponseWriter, r *http.Request, id string) {
+	models := h.pool.GetModelList(id)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"models":  models,
