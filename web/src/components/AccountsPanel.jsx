@@ -21,6 +21,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
+import {
+  getQuota,
+  getUsed,
+  getUsagePercent,
+  getSubPlan,
+  formatUsage,
+  hasOverage,
+  isOverageEnabled,
+  getOverageUsed,
+  getOverageCap,
+  getOverageCharges,
+  getOverageRate,
+  getBreakdown
+} from '../lib/accountStats'
 
 export default function AccountsPanel({
   accounts,
@@ -382,12 +396,18 @@ export default function AccountsPanel({
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {filteredAccounts.map((account, index) => {
-            const usageData = account.usageData?.usageBreakdownList?.[0]
-            const usagePercentage = usageData
-              ? (usageData.currentUsageWithPrecision / usageData.usageLimitWithPrecision) * 100
-              : 0
-            const isHighUsage = usagePercentage > 80
-            const isCriticalUsage = usagePercentage > 90
+            const breakdown = getBreakdown(account)
+            const quota = getQuota(account)
+            const used = getUsed(account)
+            const percent = getUsagePercent(account)
+            const hasOverageUsage = hasOverage(account)
+            const overageEnabled = isOverageEnabled(account)
+            const overageUsed = getOverageUsed(account)
+            const overageCap = getOverageCap(account)
+            const overageCharges = getOverageCharges(account)
+            const overageRate = getOverageRate(account)
+            const isHighUsage = percent > 80
+            const isCriticalUsage = percent > 90
 
             return (
               <Card
@@ -512,190 +532,165 @@ export default function AccountsPanel({
                       </div>
 
                       {/* 用量和额度详情 */}
-                      {account.usageData?.usageBreakdownList && account.usageData.usageBreakdownList.length > 0 && (
-                        <div className="space-y-3">
-                          {account.usageData.usageBreakdownList.map((usage, idx) => {
-                            const current = usage.currentUsageWithPrecision || usage.currentUsage || 0
-                            const limit = usage.usageLimitWithPrecision || usage.usageLimit || 0
-                            const remaining = Math.max(0, limit - current)
-                            const percentage = limit > 0 ? (current / limit) * 100 : 0
-                            const isHigh = percentage > 80
-                            const isCritical = percentage > 90
-
-                            const overages = usage.currentOveragesWithPrecision || usage.currentOverages || 0
-                            const overageCap = usage.overageCapWithPrecision || usage.overageCap || 0
-                            const hasOverage = overages > 0
-                            const overagePercentage = overageCap > 0 ? (overages / overageCap) * 100 : 0
-
-                            return (
-                              <div key={idx} className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl p-4 border-2 border-gray-200 dark:border-gray-700 space-y-3">
-                                {/* 标题行 */}
-                                <div className="flex justify-between items-start">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md ${
-                                      isCritical ? 'bg-gradient-to-br from-red-500 to-red-600' :
-                                      isHigh ? 'bg-gradient-to-br from-orange-500 to-orange-600' :
-                                      'bg-gradient-to-br from-purple-600 to-pink-600'
-                                    }`}>
-                                      <Activity className="w-5 h-5 text-white" />
-                                    </div>
-                                    <div>
-                                      <p className="text-base font-bold">
-                                        {usage.displayName || usage.resourceType}
-                                      </p>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        {usage.currency && (
-                                          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
-                                            {usage.currency}
-                                          </span>
-                                        )}
-                                        {usage.unit && (
-                                          <span className="text-xs text-muted-foreground">
-                                            {usage.unit.toLowerCase()}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* 超额状态徽章 */}
-                                  {account.usageData?.overageConfiguration?.overageStatus === 'ENABLED' && (
-                                    <Badge className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
-                                      超额已启用
-                                    </Badge>
+                      {breakdown && (
+                        <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl p-4 border-2 border-gray-200 dark:border-gray-700 space-y-3">
+                          {/* 标题行 */}
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md ${
+                                hasOverageUsage ? 'bg-gradient-to-br from-purple-500 to-purple-600' :
+                                isCriticalUsage ? 'bg-gradient-to-br from-red-500 to-red-600' :
+                                isHighUsage ? 'bg-gradient-to-br from-orange-500 to-orange-600' :
+                                'bg-gradient-to-br from-purple-600 to-pink-600'
+                              }`}>
+                                <Activity className="w-5 h-5 text-white" />
+                              </div>
+                              <div>
+                                <p className="text-base font-bold">
+                                  {breakdown.displayName || breakdown.resourceType}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {breakdown.currency && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
+                                      {breakdown.currency}
+                                    </span>
+                                  )}
+                                  {breakdown.unit && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {breakdown.unit.toLowerCase()}
+                                    </span>
                                   )}
                                 </div>
-
-                                {/* 额度统计 */}
-                                <div className="grid grid-cols-3 gap-3">
-                                  <div className="text-center">
-                                    <p className="text-xs text-muted-foreground mb-1">已使用</p>
-                                    <p className={`text-lg font-bold ${
-                                      isCritical ? 'text-red-600 dark:text-red-400' :
-                                      isHigh ? 'text-orange-600 dark:text-orange-400' :
-                                      'text-foreground'
-                                    }`}>
-                                      {current.toFixed(1)}
-                                    </p>
-                                  </div>
-                                  <div className="text-center">
-                                    <p className="text-xs text-muted-foreground mb-1">剩余</p>
-                                    <p className="text-lg font-bold text-green-600 dark:text-green-400">
-                                      {remaining.toFixed(1)}
-                                    </p>
-                                  </div>
-                                  <div className="text-center">
-                                    <p className="text-xs text-muted-foreground mb-1">总额度</p>
-                                    <p className="text-lg font-bold">
-                                      {limit.toFixed(0)}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {/* 进度条 */}
-                                <div className="space-y-1.5">
-                                  <div className="flex justify-between text-xs">
-                                    <span className="text-muted-foreground">使用进度</span>
-                                    <span className={`font-semibold ${
-                                      isCritical ? 'text-red-600 dark:text-red-400' :
-                                      isHigh ? 'text-orange-600 dark:text-orange-400' :
-                                      'text-foreground'
-                                    }`}>
-                                      {percentage.toFixed(1)}%
-                                    </span>
-                                  </div>
-                                  <div className="relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden shadow-inner">
-                                    <div
-                                      className={`h-full transition-all duration-500 relative ${
-                                        isCritical
-                                          ? 'bg-gradient-to-r from-red-500 to-red-600'
-                                          : isHigh
-                                          ? 'bg-gradient-to-r from-orange-500 to-red-500'
-                                          : 'bg-gradient-to-r from-purple-600 to-pink-600'
-                                      }`}
-                                      style={{ width: `${Math.min(percentage, 100)}%` }}
-                                    >
-                                      <div className="absolute inset-0 bg-white/20 animate-pulse" />
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* 超额信息 */}
-                                {usage.overageRate > 0 && (
-                                  <div className="pt-3 border-t border-gray-300 dark:border-gray-600 space-y-2">
-                                    <div className="flex items-center justify-between text-sm">
-                                      <span className="text-muted-foreground flex items-center gap-1">
-                                        <AlertCircle className="w-3 h-3" />
-                                        超额费率
-                                      </span>
-                                      <span className="font-semibold">
-                                        {usage.currency} {usage.overageRate} / {usage.unit?.toLowerCase()}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center justify-between text-sm">
-                                      <span className="text-muted-foreground">超额上限</span>
-                                      <span className="font-semibold">
-                                        {overageCap.toFixed(0)} {usage.unit?.toLowerCase()}
-                                      </span>
-                                    </div>
-
-                                    {hasOverage && (
-                                      <>
-                                        <div className="flex items-center justify-between text-sm">
-                                          <span className="text-muted-foreground">当前超额</span>
-                                          <span className="font-bold text-orange-600 dark:text-orange-400">
-                                            {overages.toFixed(2)} / {overageCap.toFixed(0)}
-                                          </span>
-                                        </div>
-
-                                        {usage.overageCharges > 0 && (
-                                          <div className="flex items-center justify-between text-sm">
-                                            <span className="text-muted-foreground">超额费用</span>
-                                            <span className="font-bold text-red-600 dark:text-red-400">
-                                              {usage.currency} {usage.overageCharges.toFixed(2)}
-                                            </span>
-                                          </div>
-                                        )}
-
-                                        {/* 超额进度条 */}
-                                        <div className="space-y-1">
-                                          <div className="flex justify-between text-xs">
-                                            <span className="text-orange-600 dark:text-orange-400">超额使用</span>
-                                            <span className="font-semibold text-orange-600 dark:text-orange-400">
-                                              {overagePercentage.toFixed(1)}%
-                                            </span>
-                                          </div>
-                                          <div className="relative h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                                            <div
-                                              className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-500"
-                                              style={{ width: `${Math.min(overagePercentage, 100)}%` }}
-                                            />
-                                          </div>
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* 重置时间 */}
-                                {usage.nextDateReset && (
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t border-gray-300 dark:border-gray-600">
-                                    <Clock className="w-3 h-3" />
-                                    <span>
-                                      重置时间: {new Date(usage.nextDateReset * 1000).toLocaleString('zh-CN', {
-                                        year: 'numeric',
-                                        month: '2-digit',
-                                        day: '2-digit',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })}
-                                    </span>
-                                  </div>
-                                )}
                               </div>
-                            )
-                          })}
+                            </div>
+
+                            {/* 超额状态徽章 */}
+                            {overageEnabled && (
+                              <Badge className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                                超额已启用
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* 额度统计 */}
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="text-center">
+                              <p className="text-xs text-muted-foreground mb-1">已使用</p>
+                              <p className={`text-lg font-bold ${
+                                hasOverageUsage ? 'text-purple-600 dark:text-purple-400' :
+                                isCriticalUsage ? 'text-red-600 dark:text-red-400' :
+                                isHighUsage ? 'text-orange-600 dark:text-orange-400' :
+                                'text-foreground'
+                              }`}>
+                                {formatUsage(used)}
+                              </p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-xs text-muted-foreground mb-1">剩余</p>
+                              <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                                {formatUsage(Math.max(0, quota - used))}
+                              </p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-xs text-muted-foreground mb-1">总额度</p>
+                              <p className="text-lg font-bold">
+                                {formatUsage(quota)}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* 进度条 */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">
+                                {hasOverageUsage ? '超额使用' : '使用进度'}
+                              </span>
+                              <span className={`font-semibold ${
+                                hasOverageUsage ? 'text-purple-600 dark:text-purple-400' :
+                                isCriticalUsage ? 'text-red-600 dark:text-red-400' :
+                                isHighUsage ? 'text-orange-600 dark:text-orange-400' :
+                                'text-foreground'
+                              }`}>
+                                {hasOverageUsage ? '超额' : `${percent.toFixed(1)}%`}
+                              </span>
+                            </div>
+                            <div className="relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden shadow-inner">
+                              <div
+                                className={`h-full transition-all duration-500 relative ${
+                                  hasOverageUsage
+                                    ? 'bg-gradient-to-r from-purple-500 to-purple-600'
+                                    : isCriticalUsage
+                                    ? 'bg-gradient-to-r from-red-500 to-red-600'
+                                    : isHighUsage
+                                    ? 'bg-gradient-to-r from-orange-500 to-red-500'
+                                    : 'bg-gradient-to-r from-purple-600 to-pink-600'
+                                }`}
+                                style={{ width: `${Math.min(percent, 100)}%` }}
+                              >
+                                <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 超额信息 */}
+                          {hasOverageUsage && (
+                            <div className="pt-3 border-t border-gray-300 dark:border-gray-600 space-y-2">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-purple-600 dark:text-purple-400 font-medium">
+                                  ⚡ 超额使用
+                                </span>
+                                <span className="font-bold text-purple-600 dark:text-purple-400">
+                                  {formatUsage(overageUsed)} / {formatUsage(overageCap)} {breakdown.unit?.toLowerCase()}
+                                </span>
+                              </div>
+                              {overageCharges > 0 && (
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-muted-foreground">超额费用</span>
+                                  <span className="font-bold text-red-600 dark:text-red-400">
+                                    {breakdown.currency} {overageCharges.toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              {overageCap > 0 && (
+                                <div className="h-2 rounded-full bg-purple-500/10 overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-500"
+                                    style={{ width: `${Math.min((overageUsed / overageCap) * 100, 100)}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* 超额已开启但未使用 */}
+                          {!hasOverageUsage && overageEnabled && overageRate > 0 && (
+                            <div className="pt-3 border-t border-gray-300 dark:border-gray-600">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-green-600 dark:text-green-400 font-medium">
+                                  ⚡ 超额已开启 (上限 {formatUsage(overageCap)})
+                                </span>
+                                <span className="text-muted-foreground text-xs">
+                                  {breakdown.currency} {overageRate}/credit
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 重置时间 */}
+                          {breakdown.nextDateReset && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t border-gray-300 dark:border-gray-600">
+                              <Clock className="w-3 h-3" />
+                              <span>
+                                重置时间: {new Date(breakdown.nextDateReset * 1000).toLocaleString('zh-CN', {
+                                  year: 'numeric',
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
