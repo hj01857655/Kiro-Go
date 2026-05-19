@@ -200,13 +200,13 @@ export default function AccountsPanel({
                     placeholder="搜索账户（邮箱、昵称、ID）..."
                     value={searchTerm}
                     onChange={(e) => onSearchChange(e.target.value)}
-                    className="pl-9 w-full border-2 focus:border-purple-500 dark:focus:border-purple-400 transition-colors"
+                    className="pl-9 w-full border-2 border-gray-300 dark:border-gray-600 focus:border-purple-500 dark:focus:border-purple-400 transition-colors"
                   />
                 </div>
               </div>
               <div className="flex gap-2 w-full sm:w-auto flex-wrap">
                 <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[140px] border-2">
+                  <SelectTrigger className="w-[140px] border-2 border-gray-300 dark:border-gray-600">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -218,7 +218,7 @@ export default function AccountsPanel({
                 </Select>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="border-2">
+                    <Button variant="outline" className="border-2 border-gray-300 dark:border-gray-600">
                       <Download className="w-4 h-4 sm:mr-2" />
                       <span className="hidden sm:inline">导出</span>
                     </Button>
@@ -234,7 +234,7 @@ export default function AccountsPanel({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 btn-scale">
+                <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 border-gray-300 dark:border-gray-600 btn-scale">
                   <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">刷新</span>
                 </Button>
@@ -256,7 +256,7 @@ export default function AccountsPanel({
                     <Checkbox
                       checked={selectedIds.length === filteredAccounts.length}
                       onCheckedChange={toggleSelectAll}
-                      className="border-2"
+                      className="border-2 border-gray-300 dark:border-gray-600"
                     />
                     <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
                       已选择 {selectedIds.length} 个账户
@@ -270,7 +270,7 @@ export default function AccountsPanel({
                         await Promise.all(ids.map(id => onRefreshAccount(id)))
                         toast.success(`已刷新 ${ids.length} 个账户`)
                       })}
-                      className="border-2 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
+                      className="border-2 border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
                     >
                       <RefreshCw className="w-4 h-4 mr-1" />
                       批量刷新
@@ -279,7 +279,7 @@ export default function AccountsPanel({
                       size="sm"
                       variant="outline"
                       onClick={() => handleBatchAction(onBatchEnable)}
-                      className="border-2 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30 btn-scale"
+                      className="border-2 border-green-300 dark:border-green-700 hover:bg-green-50 dark:hover:bg-green-950/30 btn-scale"
                     >
                       <Check className="w-4 h-4 mr-1" />
                       批量启用
@@ -288,7 +288,7 @@ export default function AccountsPanel({
                       size="sm"
                       variant="outline"
                       onClick={() => handleBatchAction(onBatchDisable)}
-                      className="border-2 border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-950/30 btn-scale"
+                      className="border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-950/30 btn-scale"
                     >
                       <X className="w-4 h-4 mr-1" />
                       批量禁用
@@ -591,7 +591,7 @@ export default function AccountsPanel({
                         size="icon"
                         variant="outline"
                         onClick={() => onShowDetail(account.id)}
-                        className="h-7 w-7 border hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30 btn-scale"
+                        className="h-7 w-7 border border-gray-300 dark:border-gray-600 hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30 btn-scale"
                         title="查看详情"
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -601,10 +601,10 @@ export default function AccountsPanel({
                         variant="outline"
                         onClick={() => handleAction(account.id, () => onToggle(account.id, account.enabled))}
                         disabled={actionLoading[account.id] === 'toggle'}
-                        className={`h-7 w-7 border btn-scale ${
+                        className={`h-7 w-7 border border-gray-300 dark:border-gray-600 btn-scale ${
                           account.enabled
-                            ? 'hover:border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950/30'
-                            : 'hover:border-green-500 hover:bg-green-50 dark:hover:bg-green-950/30'
+                            ? 'hover:border-orange-500 dark:hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30'
+                            : 'hover:border-green-500 dark:hover:border-green-400 hover:bg-green-50 dark:hover:bg-green-950/30'
                         }`}
                         title={account.enabled ? '禁用账户' : '启用账户'}
                       >
@@ -619,7 +619,7 @@ export default function AccountsPanel({
                         variant="outline"
                         onClick={() => handleAction(account.id, () => onRefreshAccount(account.id))}
                         disabled={actionLoading[account.id] === 'refresh'}
-                        className="h-7 w-7 border hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
+                        className="h-7 w-7 border border-gray-300 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
                         title="刷新账户信息"
                       >
                         {actionLoading[account.id] === 'refresh' ? (
