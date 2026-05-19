@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
@@ -6,9 +6,13 @@ import { Checkbox } from './ui/checkbox'
 import {
   RefreshCw, Trash2, Power, Plus, Search,
   Eye, Loader2, AlertCircle, CheckCircle2,
-  TrendingUp, Users, Activity, Filter, Download,
-  PowerOff, Check, X
+  TrendingUp, Users, Activity, Download,
+  Check, X, Copy
 } from 'lucide-react'
+import { Input } from './ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
+import { exportToJSON, exportToCSV, copyToClipboard } from '../lib/utils'
+import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,8 +21,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
-import { Input } from './ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 export default function AccountsPanel({
   accounts,
@@ -64,6 +66,44 @@ export default function AccountsPanel({
     if (selectedIds.length === 0) return
     await action(selectedIds)
     setSelectedIds([])
+  }
+
+  const handleExportJSON = () => {
+    const exportData = filteredAccounts.map(acc => ({
+      id: acc.id,
+      email: acc.email,
+      nickname: acc.nickname,
+      enabled: acc.enabled,
+      subscriptionType: acc.subscriptionType,
+      authMethod: acc.authMethod,
+      provider: acc.provider,
+      requestCount: acc.requestCount,
+      lastUsed: acc.lastUsed
+    }))
+    exportToJSON(exportData, `accounts-${new Date().toISOString().split('T')[0]}.json`)
+    toast.success('已导出为 JSON 文件')
+  }
+
+  const handleExportCSV = () => {
+    const exportData = filteredAccounts.map(acc => ({
+      ID: acc.id,
+      邮箱: acc.email,
+      昵称: acc.nickname || '',
+      状态: acc.enabled ? '已启用' : '已禁用',
+      订阅类型: acc.subscriptionType || 'Free',
+      认证方式: acc.authMethod === 'idc' ? 'IdC' : 'Social',
+      提供商: acc.provider || '',
+      请求次数: acc.requestCount || 0,
+      最后使用: acc.lastUsed ? new Date(acc.lastUsed * 1000).toLocaleString('zh-CN') : '从未'
+    }))
+    exportToCSV(exportData, `accounts-${new Date().toISOString().split('T')[0]}.csv`)
+    toast.success('已导出为 CSV 文件')
+  }
+
+  const handleCopyId = (id) => {
+    copyToClipboard(id)
+      .then(() => toast.success('已复制账户 ID'))
+      .catch(() => toast.error('复制失败'))
   }
 
   let filteredAccounts = accounts.filter(acc => {
@@ -201,6 +241,24 @@ export default function AccountsPanel({
                 <SelectItem value="usage">用量</SelectItem>
               </SelectContent>
             </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <Download className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">导出</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>导出格式</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleExportJSON}>
+                  导出为 JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportCSV}>
+                  导出为 CSV
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button onClick={onRefresh} variant="outline" disabled={loading}>
               <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">刷新</span>
@@ -312,6 +370,14 @@ export default function AccountsPanel({
                           已禁用
                         </Badge>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2"
+                        onClick={() => handleCopyId(account.id)}
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
                     </div>
                     <p className="text-sm text-muted-foreground mb-3 truncate">{account.email}</p>
 
