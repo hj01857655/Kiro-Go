@@ -338,7 +338,7 @@ func RefreshAccountInfo(account *config.Account) (*config.AccountInfo, error) {
 
 	// 保存原始响应
 	if usageJSON, err := json.Marshal(usage); err == nil {
-		info.UsageData = string(usageJSON)
+		info.UsageData = usageJSON
 	}
 
 	// 如果成功获取信息，清除封禁状态（如果之前被标记）

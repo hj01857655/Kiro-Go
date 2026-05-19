@@ -20,7 +20,7 @@ import (
 const tokenRefreshSkewSeconds int64 = 120
 
 // parseUsageData extracts display fields from raw UsageData JSON
-func parseUsageData(usageData string) map[string]interface{} {
+func parseUsageData(usageData json.RawMessage) map[string]interface{} {
 	result := map[string]interface{}{
 		"subscriptionType":  "",
 		"subscriptionTitle": "",
@@ -41,12 +41,12 @@ func parseUsageData(usageData string) map[string]interface{} {
 		"overageStatus":     "",
 	}
 
-	if usageData == "" {
+	if len(usageData) == 0 {
 		return result
 	}
 
 	var response UsageLimitsResponse
-	if err := json.Unmarshal([]byte(usageData), &response); err != nil {
+	if err := json.Unmarshal(usageData, &response); err != nil {
 		return result
 	}
 
@@ -2384,9 +2384,9 @@ func (h *Handler) apiSetOverage(w http.ResponseWriter, r *http.Request, id strin
 	}
 
 	// 检查账户是否支持超额
-	if account.UsageData != "" {
+	if len(account.UsageData) > 0 {
 		var usage UsageLimitsResponse
-		if err := json.Unmarshal([]byte(account.UsageData), &usage); err == nil {
+		if err := json.Unmarshal(account.UsageData, &usage); err == nil {
 			if usage.SubscriptionInfo == nil || usage.SubscriptionInfo.OverageCapability != "OVERAGE_CAPABLE" {
 				w.WriteHeader(400)
 				json.NewEncoder(w).Encode(map[string]string{"error": "Account does not support overage"})
@@ -3492,7 +3492,7 @@ func (h *Handler) apiGetAccountModelsCached(w http.ResponseWriter, r *http.Reque
 // ==================== 静态文件服务 ====================
 
 func (h *Handler) serveAdminPage(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "web/index.html")
+	http.ServeFile(w, r, "web/dist/index.html")
 }
 
 func (h *Handler) serveStaticFile(w http.ResponseWriter, r *http.Request) {

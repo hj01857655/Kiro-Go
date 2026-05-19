@@ -74,8 +74,8 @@ type Account struct {
 	BanTime   int64  `json:"banTime,omitempty"`   // Timestamp when ban was detected
 
 	// Usage tracking
-	LastRefresh int64  `json:"lastRefresh,omitempty"` // Last info refresh timestamp
-	UsageData   string `json:"usageData,omitempty"`   // Raw usage API response (JSON)
+	LastRefresh int64            `json:"lastRefresh,omitempty"` // Last info refresh timestamp
+	UsageData   json.RawMessage  `json:"usageData,omitempty"`   // Raw usage API response (JSON)
 
 	// Runtime statistics (updated during operation)
 	RequestCount int     `json:"requestCount,omitempty"` // Total requests processed
@@ -201,7 +201,7 @@ type AccountInfo struct {
 	Email       string
 	UserId      string
 	LastRefresh int64
-	UsageData   string // Raw usage API response (JSON)
+	UsageData   json.RawMessage // Raw usage API response (JSON)
 }
 
 // Version current version

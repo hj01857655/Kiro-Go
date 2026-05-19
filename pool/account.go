@@ -376,8 +376,8 @@ type usageInfo struct {
 }
 
 // parseUsageFromData extracts usage information from the raw UsageData JSON
-func parseUsageFromData(usageData string) usageInfo {
-	if usageData == "" {
+func parseUsageFromData(usageData json.RawMessage) usageInfo {
+	if len(usageData) == 0 {
 		return usageInfo{}
 	}
 
@@ -389,7 +389,7 @@ func parseUsageFromData(usageData string) usageInfo {
 		} `json:"usageBreakdownList"`
 	}
 
-	if err := json.Unmarshal([]byte(usageData), &response); err != nil {
+	if err := json.Unmarshal(usageData, &response); err != nil {
 		return usageInfo{}
 	}
 
