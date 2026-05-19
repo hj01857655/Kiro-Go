@@ -226,26 +226,54 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                           )}
                         </div>
 
-                        {usage.overageRate && (
-                          <div className="pt-3 border-t border-border">
+                        {usage.overageRate > 0 && (
+                          <div className="pt-3 border-t border-border space-y-2">
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">超额费率</span>
                               <span className="font-semibold">
                                 {usage.currency} {usage.overageRate} / {usage.unit?.toLowerCase()}
                               </span>
                             </div>
-                            <div className="flex items-center justify-between text-sm mt-1">
+                            <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">超额上限</span>
                               <span className="font-semibold">
-                                {usage.overageCapWithPrecision?.toFixed(0) || usage.overageCap}
+                                {usage.overageCapWithPrecision?.toFixed(0) || usage.overageCap} {usage.unit?.toLowerCase()}
                               </span>
                             </div>
-                            {usage.currentOveragesWithPrecision > 0 && (
-                              <div className="flex items-center justify-between text-sm mt-1">
-                                <span className="text-muted-foreground">当前超额</span>
-                                <span className="font-semibold text-orange-600 dark:text-orange-400">
-                                  {usage.currentOveragesWithPrecision?.toFixed(2)}
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">当前超额</span>
+                              <span className={`font-semibold ${
+                                (usage.currentOveragesWithPrecision || usage.currentOverages) > 0
+                                  ? 'text-orange-600 dark:text-orange-400'
+                                  : 'text-muted-foreground'
+                              }`}>
+                                {(usage.currentOveragesWithPrecision || usage.currentOverages)?.toFixed(2) || '0.00'} / {usage.overageCapWithPrecision?.toFixed(0) || usage.overageCap}
+                              </span>
+                            </div>
+                            {usage.overageCharges > 0 && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">超额费用</span>
+                                <span className="font-semibold text-red-600 dark:text-red-400">
+                                  {usage.currency} {usage.overageCharges.toFixed(2)}
                                 </span>
+                              </div>
+                            )}
+                            {(usage.currentOveragesWithPrecision || usage.currentOverages) > 0 && (
+                              <div className="space-y-1 pt-2">
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-orange-600 dark:text-orange-400">超额使用进度</span>
+                                  <span className="font-semibold text-orange-600 dark:text-orange-400">
+                                    {(((usage.currentOveragesWithPrecision || usage.currentOverages) / (usage.overageCapWithPrecision || usage.overageCap)) * 100).toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="relative h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-500"
+                                    style={{
+                                      width: `${Math.min(((usage.currentOveragesWithPrecision || usage.currentOverages) / (usage.overageCapWithPrecision || usage.overageCap)) * 100, 100)}%`
+                                    }}
+                                  />
+                                </div>
                               </div>
                             )}
                           </div>
