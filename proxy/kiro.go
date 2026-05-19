@@ -56,6 +56,10 @@ var kiroRestHttpStore atomic.Pointer[http.Client]
 // proxyClientCache caches http.Client instances keyed by proxy URL for per-account proxy support.
 var proxyClientCache sync.Map
 
+// profileArnLogCache caches the last log time for ProfileArn resolution failures to avoid log spam.
+// Key: account email, Value: last log time
+var profileArnLogCache sync.Map
+
 func init() {
 	InitKiroHttpClient("")
 }
@@ -123,6 +127,26 @@ func buildKiroTransport(proxyURL string) *http.Transport {
 		t.Proxy = http.ProxyFromEnvironment
 	}
 	return t
+}
+
+// shouldLogProfileArnError checks if we should log a ProfileArn resolution error for the given email.
+// Returns true if this is the first error or if enough time has passed since the last log (5 minutes).
+func shouldLogProfileArnError(email string) bool {
+	if email == "" || email == "<nil>" {
+		return true // Always log if email is invalid
+	}
+
+	now := time.Now()
+	if lastTime, ok := profileArnLogCache.Load(email); ok {
+		// Only log if 5 minutes have passed since last log
+		if now.Sub(lastTime.(time.Time)) < 5*time.Minute {
+			return false
+		}
+	}
+
+	// Update cache with current time
+	profileArnLogCache.Store(email, now)
+	return true
 }
 
 // InitKiroHttpClient initializes (or reinitializes) the HTTP clients used for Kiro API requests.
@@ -307,7 +331,10 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			if account != nil {
 				accountEmail = account.Email
 			}
-			logger.Warnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail, err)
+			// Only log if this is the first error or 5 minutes have passed since last log
+			if shouldLogProfileArnError(accountEmail) {
+				logger.Warnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail, err)
+			}
 		}
 	}
 
@@ -350,9 +377,22 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			continue
 		}
 
+		// Rate limit exceeded
 		if resp.StatusCode == 429 {
 			resp.Body.Close()
-			logger.Warnf("[KiroAPI] Endpoint %s quota exhausted (429), trying next...", ep.Name)
+			logger.Warnf("[KiroAPI] Endpoint %s rate limited (429), trying next...", ep.Name)
+			lastErr = fmt.Errorf("rate limit on %s", ep.Name)
+			continue
+		}
+
+		// Payment required / quota exhausted
+		if resp.StatusCode == 402 {
+			resp.Body.Close()
+			logger.Warnf("[KiroAPI] Endpoint %s quota exhausted (402), auto-disabling account %s", ep.Name, account.Email)
+			// Auto-disable the account
+			if err := config.DisableAccount(account.ID, "Quota exhausted (402)"); err != nil {
+				logger.Errorf("[KiroAPI] Failed to disable account %s: %v", account.Email, err)
+			}
 			lastErr = fmt.Errorf("quota exhausted on %s", ep.Name)
 			continue
 		}
@@ -361,8 +401,8 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
-			// Authentication errors and payment errors are not retried across endpoints.
-			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
+			// Authentication errors are not retried across endpoints.
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
 				return lastErr
 			}
 			logger.Warnf("[KiroAPI] Endpoint %s error: %v", ep.Name, lastErr)

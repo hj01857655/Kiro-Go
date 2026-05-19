@@ -3,6 +3,7 @@
 package pool
 
 import (
+	"encoding/json"
 	"kiro-go/config"
 	"strings"
 	"sync"
@@ -364,7 +365,53 @@ func (p *AccountPool) GetAllAccounts() []config.Account {
 }
 
 func isOverUsageLimit(acc config.Account) bool {
-	return acc.UsageLimit > 0 && acc.UsageCurrent >= acc.UsageLimit
+	usage := parseUsageFromData(acc.UsageData)
+	return usage.Limit > 0 && usage.Current >= usage.Limit
+}
+
+// usageInfo holds parsed usage information from UsageData
+type usageInfo struct {
+	Current float64
+	Limit   float64
+}
+
+// parseUsageFromData extracts usage information from the raw UsageData JSON
+func parseUsageFromData(usageData string) usageInfo {
+	if usageData == "" {
+		return usageInfo{}
+	}
+
+	var response struct {
+		UsageBreakdownList []struct {
+			ResourceType string  `json:"resourceType"`
+			CurrentUsage float64 `json:"currentUsage"`
+			UsageLimit   float64 `json:"usageLimit"`
+		} `json:"usageBreakdownList"`
+	}
+
+	if err := json.Unmarshal([]byte(usageData), &response); err != nil {
+		return usageInfo{}
+	}
+
+	// Find CREDIT or AGENTIC_REQUEST breakdown
+	for _, breakdown := range response.UsageBreakdownList {
+		if breakdown.ResourceType == "CREDIT" || breakdown.ResourceType == "AGENTIC_REQUEST" {
+			return usageInfo{
+				Current: breakdown.CurrentUsage,
+				Limit:   breakdown.UsageLimit,
+			}
+		}
+	}
+
+	// Fallback to first breakdown
+	if len(response.UsageBreakdownList) > 0 {
+		return usageInfo{
+			Current: response.UsageBreakdownList[0].CurrentUsage,
+			Limit:   response.UsageBreakdownList[0].UsageLimit,
+		}
+	}
+
+	return usageInfo{}
 }
 
 func effectiveWeight(weight int) int {

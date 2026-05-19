@@ -11,12 +11,17 @@
 package config
 
 import (
+	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 )
 
 // GenerateMachineId generates a UUID v4 format machine identifier.
@@ -68,24 +73,9 @@ type Account struct {
 	BanReason string `json:"banReason,omitempty"` // Reason for ban/suspension
 	BanTime   int64  `json:"banTime,omitempty"`   // Timestamp when ban was detected
 
-	// Subscription information
-	SubscriptionType  string `json:"subscriptionType,omitempty"`  // Tier: FREE, PRO, PRO_PLUS, or POWER
-	SubscriptionTitle string `json:"subscriptionTitle,omitempty"` // Human-readable subscription name
-	DaysRemaining     int    `json:"daysRemaining,omitempty"`     // Days until subscription expires
-
 	// Usage tracking
-	UsageCurrent  float64 `json:"usageCurrent,omitempty"`  // Current period usage (credits)
-	UsageLimit    float64 `json:"usageLimit,omitempty"`    // Maximum allowed usage per period
-	UsagePercent  float64 `json:"usagePercent,omitempty"`  // Usage percentage (0.0-1.0)
-	NextResetDate string  `json:"nextResetDate,omitempty"` // Date when usage resets (YYYY-MM-DD)
-	LastRefresh   int64   `json:"lastRefresh,omitempty"`   // Last info refresh timestamp
-
-	// Trial usage tracking
-	TrialUsageCurrent float64 `json:"trialUsageCurrent,omitempty"` // Trial quota current usage
-	TrialUsageLimit   float64 `json:"trialUsageLimit,omitempty"`   // Trial quota total limit
-	TrialUsagePercent float64 `json:"trialUsagePercent,omitempty"` // Trial quota usage percentage (0.0-1.0)
-	TrialStatus       string  `json:"trialStatus,omitempty"`       // Trial status: ACTIVE, EXPIRED, NONE
-	TrialExpiresAt    int64   `json:"trialExpiresAt,omitempty"`    // Trial expiration timestamp (Unix seconds)
+	LastRefresh int64  `json:"lastRefresh,omitempty"` // Last info refresh timestamp
+	UsageData   string `json:"usageData,omitempty"`   // Raw usage API response (JSON)
 
 	// Runtime statistics (updated during operation)
 	RequestCount int     `json:"requestCount,omitempty"` // Total requests processed
@@ -93,6 +83,20 @@ type Account struct {
 	LastUsed     int64   `json:"lastUsed,omitempty"`     // Last request timestamp
 	TotalTokens  int     `json:"totalTokens,omitempty"`  // Cumulative tokens processed
 	TotalCredits float64 `json:"totalCredits,omitempty"` // Cumulative credits consumed
+}
+
+// ApiKey represents a managed API key for programmatic access.
+type ApiKey struct {
+	ID          string   `json:"id"`                    // Unique key identifier (UUID)
+	Name        string   `json:"name"`                  // Descriptive name for the key
+	Key         string   `json:"key,omitempty"`         // The actual API key (only shown once on creation)
+	KeyHash     string   `json:"keyHash"`               // SHA256 hash of the key for validation
+	Enabled     bool     `json:"enabled"`               // Whether the key is active
+	Permissions []string `json:"permissions,omitempty"` // List of allowed permissions
+	CreatedAt   int64    `json:"createdAt"`             // Creation timestamp (Unix seconds)
+	ExpiresAt   int64    `json:"expiresAt,omitempty"`   // Expiration timestamp (0 = never expires)
+	LastUsed    int64    `json:"lastUsed,omitempty"`    // Last usage timestamp
+	UsageCount  int      `json:"usageCount,omitempty"`  // Total number of requests made with this key
 }
 
 // PromptFilterRule defines a single custom prompt sanitization rule.
@@ -107,6 +111,21 @@ type PromptFilterRule struct {
 	Enabled bool   `json:"enabled"`           // Whether this rule is active
 }
 
+// AuditLog represents a single audit log entry for tracking administrative actions.
+type AuditLog struct {
+	ID        string                 `json:"id"`                  // Unique log entry identifier (UUID)
+	Timestamp int64                  `json:"timestamp"`           // Unix timestamp when action occurred
+	Action    string                 `json:"action"`              // Action type: account.create, account.update, etc.
+	Level     string                 `json:"level"`               // Log level: info, warning, error
+	User      string                 `json:"user,omitempty"`      // User who performed the action (admin/system)
+	Message   string                 `json:"message"`             // Human-readable description
+	Target    string                 `json:"target,omitempty"`    // Target resource (account email, key name, etc.)
+	IPAddress string                 `json:"ipAddress,omitempty"` // IP address of the request
+	UserAgent string                 `json:"userAgent,omitempty"` // User agent string
+	Changes   map[string]interface{} `json:"changes,omitempty"`   // Before/after values for updates
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`  // Additional context data
+}
+
 // Config represents the global application configuration.
 type Config struct {
 	// Server settings
@@ -119,6 +138,8 @@ type Config struct {
 	SystemVersion string    `json:"systemVersion,omitempty"`
 	NodeVersion   string    `json:"nodeVersion,omitempty"`
 	Accounts      []Account `json:"accounts"` // Registered Kiro accounts
+	ApiKeys       []ApiKey  `json:"apiKeys,omitempty"` // Managed API keys for programmatic access
+	AuditLogs     []AuditLog `json:"-"` // Audit logs (in-memory only, not persisted to config file)
 
 	// Thinking mode configuration for extended reasoning output
 	ThinkingSuffix       string `json:"thinkingSuffix,omitempty"`       // Model suffix to trigger thinking mode (default: "-thinking")
@@ -177,36 +198,29 @@ type Config struct {
 // AccountInfo contains account metadata retrieved from Kiro API.
 // Used for updating subscription and usage information.
 type AccountInfo struct {
-	Email             string
-	UserId            string
-	SubscriptionType  string
-	SubscriptionTitle string
-	DaysRemaining     int
-	UsageCurrent      float64
-	UsageLimit        float64
-	UsagePercent      float64
-	NextResetDate     string
-	LastRefresh       int64
-	TrialUsageCurrent float64
-	TrialUsageLimit   float64
-	TrialUsagePercent float64
-	TrialStatus       string
-	TrialExpiresAt    int64
+	Email       string
+	UserId      string
+	LastRefresh int64
+	UsageData   string // Raw usage API response (JSON)
 }
 
 // Version current version
 const Version = "1.0.8"
 
 var (
-	cfg     *Config
-	cfgLock sync.RWMutex
-	cfgPath string
+	cfg         *Config
+	cfgLock     sync.RWMutex
+	cfgPath     string
+	auditLogPath string
 )
 
 // Init initializes the configuration system with the specified file path.
 // If the file doesn't exist, a default configuration is created.
 func Init(path string) error {
 	cfgPath = path
+	// Set audit log path to data/audit.log
+	dir := filepath.Dir(path)
+	auditLogPath = filepath.Join(dir, "audit.log")
 	return Load()
 }
 
@@ -218,11 +232,11 @@ func Load() error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create default configuration.
-			// Binds to 0.0.0.0 by default for Docker/container compatibility.
+			// Binds to 127.0.0.1 by default for security (local-only access).
 			cfg = &Config{
 				Password:      "changeme",
 				Port:          8080,
-				Host:          "0.0.0.0",
+				Host:          "127.0.0.1",
 				RequireApiKey: false,
 				Accounts:      []Account{},
 			}
@@ -268,6 +282,198 @@ func GetPassword() string {
 	defer cfgLock.RUnlock()
 	return cfg.Password
 }
+
+// ==================== API Keys Management ====================
+
+// GetApiKeys returns all API keys (without the actual key values)
+func GetApiKeys() []ApiKey {
+	cfgLock.RLock()
+	defer cfgLock.RUnlock()
+	if cfg.ApiKeys == nil {
+		return []ApiKey{}
+	}
+	keys := make([]ApiKey, len(cfg.ApiKeys))
+	copy(keys, cfg.ApiKeys)
+	// Clear the actual key values for security
+	for i := range keys {
+		keys[i].Key = ""
+	}
+	return keys
+}
+
+// GetApiKeyByID returns a specific API key by ID (without the actual key value)
+func GetApiKeyByID(id string) *ApiKey {
+	cfgLock.RLock()
+	defer cfgLock.RUnlock()
+	for _, key := range cfg.ApiKeys {
+		if key.ID == id {
+			keyCopy := key
+			keyCopy.Key = "" // Don't expose the actual key
+			return &keyCopy
+		}
+	}
+	return nil
+}
+
+// ValidateApiKeyHash checks if a provided key matches any stored key hash
+func ValidateApiKeyHash(providedKey string) *ApiKey {
+	cfgLock.RLock()
+	defer cfgLock.RUnlock()
+
+	hash := sha256.Sum256([]byte(providedKey))
+	hashStr := hex.EncodeToString(hash[:])
+
+	for i, key := range cfg.ApiKeys {
+		if key.Enabled && key.KeyHash == hashStr {
+			// Check expiration
+			if key.ExpiresAt > 0 && time.Now().Unix() > key.ExpiresAt {
+				return nil // Expired
+			}
+			// Update usage stats (need to do this with lock upgrade)
+			go func(keyID string) {
+				cfgLock.Lock()
+				defer cfgLock.Unlock()
+				for j := range cfg.ApiKeys {
+					if cfg.ApiKeys[j].ID == keyID {
+						cfg.ApiKeys[j].LastUsed = time.Now().Unix()
+						cfg.ApiKeys[j].UsageCount++
+						Save()
+						break
+					}
+				}
+			}(key.ID)
+
+			keyCopy := cfg.ApiKeys[i]
+			keyCopy.Key = ""
+			return &keyCopy
+		}
+	}
+	return nil
+}
+
+// GenerateApiKey generates a random API key string
+func GenerateApiKey() string {
+	bytes := make([]byte, 32)
+	rand.Read(bytes)
+	return "kiro_" + hex.EncodeToString(bytes)
+}
+
+// AddApiKey creates a new API key
+func AddApiKey(key ApiKey) error {
+	cfgLock.Lock()
+	defer cfgLock.Unlock()
+
+	// Generate hash if key is provided
+	if key.Key != "" {
+		hash := sha256.Sum256([]byte(key.Key))
+		key.KeyHash = hex.EncodeToString(hash[:])
+	}
+
+	key.CreatedAt = time.Now().Unix()
+
+	if cfg.ApiKeys == nil {
+		cfg.ApiKeys = []ApiKey{}
+	}
+	cfg.ApiKeys = append(cfg.ApiKeys, key)
+	return Save()
+}
+
+// UpdateApiKey updates an existing API key
+func UpdateApiKey(id string, updates ApiKey) error {
+	cfgLock.Lock()
+	defer cfgLock.Unlock()
+
+	for i, key := range cfg.ApiKeys {
+		if key.ID == id {
+			// Preserve fields that shouldn't be updated
+			updates.ID = key.ID
+			updates.KeyHash = key.KeyHash
+			updates.CreatedAt = key.CreatedAt
+			updates.UsageCount = key.UsageCount
+			updates.LastUsed = key.LastUsed
+			updates.Key = "" // Never store the plain key
+
+			cfg.ApiKeys[i] = updates
+			return Save()
+		}
+	}
+	return fmt.Errorf("API key not found")
+}
+
+// DeleteApiKey removes an API key
+func DeleteApiKey(id string) error {
+	cfgLock.Lock()
+	defer cfgLock.Unlock()
+
+	for i, key := range cfg.ApiKeys {
+		if key.ID == id {
+			cfg.ApiKeys = append(cfg.ApiKeys[:i], cfg.ApiKeys[i+1:]...)
+			return Save()
+		}
+	}
+	return fmt.Errorf("API key not found")
+}
+
+// ==================== End API Keys Management ====================
+
+// ==================== Audit Logs Management ====================
+
+// GetAuditLogs returns audit logs from file (up to 1000 most recent)
+func GetAuditLogs() []AuditLog {
+	file, err := os.Open(auditLogPath)
+	if err != nil {
+		return []AuditLog{}
+	}
+	defer file.Close()
+
+	var logs []AuditLog
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var log AuditLog
+		if err := json.Unmarshal(scanner.Bytes(), &log); err == nil {
+			logs = append(logs, log)
+		}
+		if len(logs) >= 1000 {
+			break
+		}
+	}
+	return logs
+}
+
+// AddAuditLog adds a new audit log entry to audit.log file
+func AddAuditLog(log AuditLog) error {
+	// Generate ID if not provided
+	if log.ID == "" {
+		log.ID = GenerateMachineId()
+	}
+
+	// Set timestamp if not provided
+	if log.Timestamp == 0 {
+		log.Timestamp = time.Now().Unix()
+	}
+
+	// Append to audit log file
+	file, err := os.OpenFile(auditLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+
+	_, err = file.Write(append(data, '\n'))
+	return err
+}
+
+// ClearAuditLogs removes the audit log file
+func ClearAuditLogs() error {
+	return os.Remove(auditLogPath)
+}
+
+// ==================== End Audit Logs Management ====================
 
 func GetPort() int {
 	cfgLock.RLock()
@@ -333,6 +539,23 @@ func DisableAccountOverage(id string) error {
 	for i, a := range cfg.Accounts {
 		if a.ID == id {
 			cfg.Accounts[i].AllowOverage = false
+			return Save()
+		}
+	}
+	return nil
+}
+
+// DisableAccount disables a specific account (sets Enabled to false).
+func DisableAccount(id string, reason string) error {
+	cfgLock.Lock()
+	defer cfgLock.Unlock()
+	for i, a := range cfg.Accounts {
+		if a.ID == id {
+			cfg.Accounts[i].Enabled = false
+			if reason != "" {
+				cfg.Accounts[i].BanReason = reason
+				cfg.Accounts[i].BanTime = time.Now().Unix()
+			}
 			return Save()
 		}
 	}
@@ -448,19 +671,8 @@ func UpdateAccountInfo(id string, info AccountInfo) error {
 			if info.UserId != "" {
 				cfg.Accounts[i].UserId = info.UserId
 			}
-			cfg.Accounts[i].SubscriptionType = info.SubscriptionType
-			cfg.Accounts[i].SubscriptionTitle = info.SubscriptionTitle
-			cfg.Accounts[i].DaysRemaining = info.DaysRemaining
-			cfg.Accounts[i].UsageCurrent = info.UsageCurrent
-			cfg.Accounts[i].UsageLimit = info.UsageLimit
-			cfg.Accounts[i].UsagePercent = info.UsagePercent
-			cfg.Accounts[i].NextResetDate = info.NextResetDate
 			cfg.Accounts[i].LastRefresh = info.LastRefresh
-			cfg.Accounts[i].TrialUsageCurrent = info.TrialUsageCurrent
-			cfg.Accounts[i].TrialUsageLimit = info.TrialUsageLimit
-			cfg.Accounts[i].TrialUsagePercent = info.TrialUsagePercent
-			cfg.Accounts[i].TrialStatus = info.TrialStatus
-			cfg.Accounts[i].TrialExpiresAt = info.TrialExpiresAt
+			cfg.Accounts[i].UsageData = info.UsageData
 			return Save()
 		}
 	}

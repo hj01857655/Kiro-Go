@@ -110,6 +110,59 @@ func ListAvailableModels(account *config.Account) ([]ModelInfo, error) {
 	return result.Models, nil
 }
 
+// SetUserPreference 设置用户偏好（如超额开关）
+func SetUserPreference(account *config.Account, overageEnabled bool) error {
+	profileArn, err := ResolveProfileArn(account)
+	if err != nil {
+		return fmt.Errorf("resolve profile ARN: %w", err)
+	}
+
+	region := account.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	url := fmt.Sprintf("https://q.%s.amazonaws.com/setUserPreference", region)
+
+	overageStatus := "DISABLED"
+	if overageEnabled {
+		overageStatus = "ENABLED"
+	}
+
+	payload := map[string]interface{}{
+		"overageConfiguration": map[string]string{
+			"overageStatus": overageStatus,
+		},
+		"profileArn": profileArn,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return err
+	}
+
+	setKiroHeaders(req, account)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 // ResolveProfileArn returns the account profile ARN, fetching and caching it
 // when it is missing. First tries ListAvailableProfiles; if that returns empty,
 // falls back to refreshing the token (which returns profileArn in the response).
@@ -117,11 +170,23 @@ func ResolveProfileArn(account *config.Account) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("account is nil")
 	}
+
+	// 1. Use cached ProfileArn if available
 	if profileArn := strings.TrimSpace(account.ProfileArn); profileArn != "" {
 		return profileArn, nil
 	}
 
-	// Try ListAvailableProfiles first
+	// 2. Use fixed ProfileArn based on provider (primary method, same as Kiro IDE)
+	defaultArn := getDefaultProfileArn(account.Provider)
+	if defaultArn != "" {
+		logger.Debugf("[ProfileArn] Using fixed profile ARN for %s (provider: %s)", account.Email, account.Provider)
+		return defaultArn, nil
+	}
+
+	// Log provider info for debugging
+	logger.Warnf("[ProfileArn] No fixed ARN for provider '%s' (account: %s), trying API fallback", account.Provider, account.Email)
+
+	// 3. Try ListAvailableProfiles as fallback (for non-standard providers)
 	profileArn, err := listAvailableProfiles(account)
 	if err == nil && profileArn != "" {
 		if updateErr := config.UpdateAccountProfileArn(account.ID, profileArn); updateErr != nil {
@@ -131,7 +196,7 @@ func ResolveProfileArn(account *config.Account) (string, error) {
 		return profileArn, nil
 	}
 
-	// Fallback: refresh token to get profileArn from auth response
+	// 4. Final fallback: refresh token to get profileArn from auth response
 	if account.RefreshToken != "" {
 		_, _, _, refreshedArn, refreshErr := auth.RefreshToken(account)
 		if refreshErr == nil && refreshedArn != "" {
@@ -144,6 +209,25 @@ func ResolveProfileArn(account *config.Account) (string, error) {
 	}
 
 	return "", fmt.Errorf("no available Kiro profile")
+}
+
+// getDefaultProfileArn returns the default ProfileArn based on the authentication provider.
+// Different providers have different fixed ProfileArns.
+func getDefaultProfileArn(provider string) string {
+	// Social sign-in ProfileArn (Github, Google)
+	const socialSignInProfileArn = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK"
+	// BuilderId ProfileArn
+	const builderIdProfileArn = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX"
+
+	switch strings.ToLower(provider) {
+	case "github", "google":
+		return socialSignInProfileArn
+	case "builderid":
+		return builderIdProfileArn
+	default:
+		// For unknown providers, try social sign-in ARN as fallback
+		return socialSignInProfileArn
+	}
 }
 
 func listAvailableProfiles(account *config.Account) (string, error) {
@@ -252,6 +336,11 @@ func RefreshAccountInfo(account *config.Account) (*config.AccountInfo, error) {
 		return nil, fmt.Errorf("GetUsageLimits: %w", err)
 	}
 
+	// 保存原始响应
+	if usageJSON, err := json.Marshal(usage); err == nil {
+		info.UsageData = string(usageJSON)
+	}
+
 	// 如果成功获取信息，清除封禁状态（如果之前被标记）
 	if account.BanStatus != "" && account.BanStatus != "ACTIVE" {
 		logger.Infof("[RefreshAccountInfo] Account %s is now active, clearing ban status", account.Email)
@@ -273,103 +362,41 @@ func RefreshAccountInfo(account *config.Account) (*config.AccountInfo, error) {
 		info.UserId = usage.UserInfo.UserId
 	}
 
-	// 解析订阅信息
-	if usage.SubscriptionInfo != nil {
-		// 优先从 SubscriptionTitle 或 SubscriptionName 解析类型
-		titleOrName := usage.SubscriptionInfo.SubscriptionTitle
-		if titleOrName == "" {
-			titleOrName = usage.SubscriptionInfo.SubscriptionName
-		}
-		if titleOrName == "" {
-			titleOrName = usage.SubscriptionInfo.SubscriptionType
-		}
-		info.SubscriptionType = parseSubscriptionType(titleOrName)
-		info.SubscriptionTitle = usage.SubscriptionInfo.SubscriptionTitle
-		if info.SubscriptionTitle == "" {
-			info.SubscriptionTitle = usage.SubscriptionInfo.SubscriptionName
-		}
-		logger.Debugf("[RefreshAccountInfo] Subscription: type=%s, title=%s, name=%s, parsed=%s",
-			usage.SubscriptionInfo.SubscriptionType,
-			usage.SubscriptionInfo.SubscriptionTitle,
-			usage.SubscriptionInfo.SubscriptionName,
-			info.SubscriptionType)
-	}
-
-	// 解析使用量
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
-		info.UsageCurrent = breakdown.CurrentUsage
-		info.UsageLimit = breakdown.UsageLimit
-		if info.UsageLimit > 0 {
-			info.UsagePercent = info.UsageCurrent / info.UsageLimit
-		}
-	}
-
-	// 解析重置日期
-	if usage.NextDateReset != "" {
-		if ts, err := usage.NextDateReset.Int64(); err == nil && ts > 0 {
-			info.NextResetDate = time.Unix(ts, 0).Format("2006-01-02")
-		} else if f, err := usage.NextDateReset.Float64(); err == nil && f > 0 {
-			info.NextResetDate = time.Unix(int64(f), 0).Format("2006-01-02")
-		}
-	}
-
-	// 解析试用配额信息
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
-		if breakdown.FreeTrialInfo != nil {
-			info.TrialUsageCurrent = breakdown.FreeTrialInfo.CurrentUsage
-			info.TrialUsageLimit = breakdown.FreeTrialInfo.UsageLimit
-			if info.TrialUsageLimit > 0 {
-				info.TrialUsagePercent = info.TrialUsageCurrent / info.TrialUsageLimit
-			}
-			info.TrialStatus = breakdown.FreeTrialInfo.FreeTrialStatus
-
-			// 解析试用到期时间
-			if breakdown.FreeTrialInfo.FreeTrialExpiry != "" {
-				if ts, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Int64(); err == nil && ts > 0 {
-					info.TrialExpiresAt = ts
-				} else if f, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Float64(); err == nil && f > 0 {
-					info.TrialExpiresAt = int64(f)
-				}
-			}
-		}
-	}
-
 	return info, nil
-}
-
-func parseSubscriptionType(raw string) string {
-	upper := strings.ToUpper(raw)
-	if strings.Contains(upper, "PRO_PLUS") || strings.Contains(upper, "PROPLUS") {
-		return "PRO_PLUS"
-	}
-	if strings.Contains(upper, "POWER") {
-		return "POWER"
-	}
-	if strings.Contains(upper, "PRO") {
-		return "PRO"
-	}
-	return "FREE"
 }
 
 // 响应结构体
 type UsageLimitsResponse struct {
-	UsageBreakdownList []UsageBreakdown  `json:"usageBreakdownList"`
-	NextDateReset      json.Number       `json:"nextDateReset"`
-	SubscriptionInfo   *SubscriptionInfo `json:"subscriptionInfo"`
-	UserInfo           *UserInfo         `json:"userInfo"`
+	UsageBreakdownList    []UsageBreakdown       `json:"usageBreakdownList"`
+	NextDateReset         json.Number            `json:"nextDateReset"`
+	SubscriptionInfo      *SubscriptionInfo      `json:"subscriptionInfo"`
+	UserInfo              *UserInfo              `json:"userInfo"`
+	OverageConfiguration  *OverageConfiguration  `json:"overageConfiguration"`
+}
+
+type OverageConfiguration struct {
+	OverageStatus string `json:"overageStatus"` // ENABLED or DISABLED
 }
 
 type UsageBreakdown struct {
-	ResourceType  string         `json:"resourceType"`
-	CurrentUsage  float64        `json:"currentUsage"`
-	UsageLimit    float64        `json:"usageLimit"`
-	Currency      string         `json:"currency"`
-	Unit          string         `json:"unit"`
-	OverageRate   float64        `json:"overageRate"`
-	FreeTrialInfo *FreeTrialInfo `json:"freeTrialInfo"`
-	Bonuses       []BonusInfo    `json:"bonuses"`
+	ResourceType              string         `json:"resourceType"`
+	CurrentUsage              float64        `json:"currentUsage"`
+	CurrentUsageWithPrecision float64        `json:"currentUsageWithPrecision"`
+	UsageLimit                float64        `json:"usageLimit"`
+	UsageLimitWithPrecision   float64        `json:"usageLimitWithPrecision"`
+	CurrentOverages           float64        `json:"currentOverages"`
+	CurrentOveragesWithPrecision float64     `json:"currentOveragesWithPrecision"`
+	OverageCap                float64        `json:"overageCap"`
+	OverageCapWithPrecision   float64        `json:"overageCapWithPrecision"`
+	OverageCharges            float64        `json:"overageCharges"`
+	Currency                  string         `json:"currency"`
+	Unit                      string         `json:"unit"`
+	OverageRate               float64        `json:"overageRate"`
+	DisplayName               string         `json:"displayName"`
+	DisplayNamePlural         string         `json:"displayNamePlural"`
+	NextDateReset             json.Number    `json:"nextDateReset"`
+	FreeTrialInfo             *FreeTrialInfo `json:"freeTrialInfo"`
+	Bonuses                   []BonusInfo    `json:"bonuses"`
 }
 
 type FreeTrialInfo struct {
@@ -389,11 +416,11 @@ type BonusInfo struct {
 }
 
 type SubscriptionInfo struct {
-	SubscriptionName  string `json:"subscriptionName"`
-	SubscriptionTitle string `json:"subscriptionTitle"`
-	SubscriptionType  string `json:"subscriptionType"`
-	Status            string `json:"status"`
-	UpgradeCapability string `json:"upgradeCapability"`
+	SubscriptionTitle             string `json:"subscriptionTitle"`
+	Type                          string `json:"type"` // Q_DEVELOPER_STANDALONE_PRO, etc.
+	UpgradeCapability             string `json:"upgradeCapability"`
+	OverageCapability             string `json:"overageCapability"` // OVERAGE_CAPABLE or empty
+	SubscriptionManagementTarget  string `json:"subscriptionManagementTarget"`
 }
 
 type UserInfo struct {

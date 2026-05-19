@@ -19,6 +19,130 @@ import (
 
 const tokenRefreshSkewSeconds int64 = 120
 
+// parseUsageData extracts display fields from raw UsageData JSON
+func parseUsageData(usageData string) map[string]interface{} {
+	result := map[string]interface{}{
+		"subscriptionType":  "",
+		"subscriptionTitle": "",
+		"usageCurrent":      float64(0),
+		"usageLimit":        float64(0),
+		"usagePercent":      float64(0),
+		"nextResetDate":     "",
+		"trialUsageCurrent": float64(0),
+		"trialUsageLimit":   float64(0),
+		"trialUsagePercent": float64(0),
+		"trialStatus":       "",
+		"trialExpiresAt":    int64(0),
+		"currentOverages":   float64(0),
+		"overageCap":        float64(0),
+		"overageCharges":    float64(0),
+		"overageRate":       float64(0),
+		"currency":          "",
+		"overageStatus":     "",
+	}
+
+	if usageData == "" {
+		return result
+	}
+
+	var response UsageLimitsResponse
+	if err := json.Unmarshal([]byte(usageData), &response); err != nil {
+		return result
+	}
+
+	// Parse subscription info
+	if response.SubscriptionInfo != nil {
+		// Use Type field (e.g., "Q_DEVELOPER_STANDALONE_PRO")
+		titleOrType := response.SubscriptionInfo.SubscriptionTitle
+		if titleOrType == "" {
+			titleOrType = response.SubscriptionInfo.Type
+		}
+		result["subscriptionType"] = parseSubscriptionType(titleOrType)
+		result["subscriptionTitle"] = response.SubscriptionInfo.SubscriptionTitle
+	}
+
+	// Find CREDIT or AGENTIC_REQUEST breakdown
+	var breakdown *UsageBreakdown
+	for i := range response.UsageBreakdownList {
+		rt := response.UsageBreakdownList[i].ResourceType
+		if rt == "CREDIT" || rt == "AGENTIC_REQUEST" {
+			breakdown = &response.UsageBreakdownList[i]
+			break
+		}
+	}
+	if breakdown == nil && len(response.UsageBreakdownList) > 0 {
+		breakdown = &response.UsageBreakdownList[0]
+	}
+
+	if breakdown != nil {
+		result["usageCurrent"] = breakdown.CurrentUsage
+		result["usageLimit"] = breakdown.UsageLimit
+		if breakdown.UsageLimit > 0 {
+			result["usagePercent"] = breakdown.CurrentUsage / breakdown.UsageLimit
+		}
+
+		// Parse overage info
+		result["currentOverages"] = breakdown.CurrentOverages
+		result["overageCap"] = breakdown.OverageCap
+		result["overageCharges"] = breakdown.OverageCharges
+		result["overageRate"] = breakdown.OverageRate
+		result["currency"] = breakdown.Currency
+
+		// Parse trial info
+		if breakdown.FreeTrialInfo != nil {
+			result["trialUsageCurrent"] = breakdown.FreeTrialInfo.CurrentUsage
+			result["trialUsageLimit"] = breakdown.FreeTrialInfo.UsageLimit
+			if breakdown.FreeTrialInfo.UsageLimit > 0 {
+				result["trialUsagePercent"] = breakdown.FreeTrialInfo.CurrentUsage / breakdown.FreeTrialInfo.UsageLimit
+			}
+			result["trialStatus"] = breakdown.FreeTrialInfo.FreeTrialStatus
+
+			if breakdown.FreeTrialInfo.FreeTrialExpiry != "" {
+				if ts, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Int64(); err == nil && ts > 0 {
+					result["trialExpiresAt"] = ts
+				} else if f, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Float64(); err == nil && f > 0 {
+					result["trialExpiresAt"] = int64(f)
+				}
+			}
+		}
+	}
+
+	// Parse reset date
+	if response.NextDateReset != "" {
+		dateStr := string(response.NextDateReset)
+		// Try parsing as ISO 8601 string first (e.g., "2026-06-01T00:00:00.000Z")
+		if t, err := time.Parse(time.RFC3339, dateStr); err == nil {
+			result["nextResetDate"] = t.Format("2006-01-02")
+		} else if ts, err := response.NextDateReset.Int64(); err == nil && ts > 0 {
+			result["nextResetDate"] = time.Unix(ts, 0).Format("2006-01-02")
+		} else if f, err := response.NextDateReset.Float64(); err == nil && f > 0 {
+			result["nextResetDate"] = time.Unix(int64(f), 0).Format("2006-01-02")
+		}
+	}
+
+	// Parse overage status
+	if response.OverageConfiguration != nil {
+		result["overageStatus"] = response.OverageConfiguration.OverageStatus
+	}
+
+	return result
+}
+
+// parseSubscriptionType extracts subscription tier from raw string
+func parseSubscriptionType(raw string) string {
+	upper := strings.ToUpper(raw)
+	if strings.Contains(upper, "PRO_PLUS") || strings.Contains(upper, "PROPLUS") {
+		return "PRO_PLUS"
+	}
+	if strings.Contains(upper, "POWER") {
+		return "POWER"
+	}
+	if strings.Contains(upper, "PRO") {
+		return "PRO"
+	}
+	return "FREE"
+}
+
 // Handler HTTP 处理器
 type Handler struct {
 	pool *pool.AccountPool
@@ -291,12 +415,36 @@ func (h *Handler) refreshAllAccounts() {
 		}
 
 		config.UpdateAccountInfo(account.ID, *info)
-		logger.Infof("[BackgroundRefresh] Refreshed %s: %s %.1f/%.1f", account.Email, info.SubscriptionType, info.UsageCurrent, info.UsageLimit)
+		logger.Infof("[BackgroundRefresh] Refreshed %s", account.Email)
 	}
 	h.pool.Reload()
 }
 
-// validateApiKey 验证 API Key
+// extractApiKey 从请求中提取 API Key
+func (h *Handler) extractApiKey(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	return r.Header.Get("X-Api-Key")
+}
+
+// validateManagedApiKey 验证新的 API Keys 管理系统中的密钥
+// 用于对话接口（/v1/messages, /v1/chat/completions）
+func (h *Handler) validateManagedApiKey(r *http.Request) bool {
+	// 如果没有要求 API Key，直接通过
+	if !config.IsApiKeyRequired() {
+		return true
+	}
+
+	providedKey := h.extractApiKey(r)
+	if providedKey == "" {
+		return false
+	}
+	return config.ValidateApiKeyHash(providedKey) != nil
+}
+
+// validateApiKey 验证旧的全局访问密钥
 func (h *Handler) validateApiKey(r *http.Request) bool {
 	if !config.IsApiKeyRequired() {
 		return true
@@ -307,18 +455,30 @@ func (h *Handler) validateApiKey(r *http.Request) bool {
 		return true
 	}
 
-	// 从 Authorization 头或 X-Api-Key 头获取
-	authHeader := r.Header.Get("Authorization")
-	apiKeyHeader := r.Header.Get("X-Api-Key")
+	providedKey := h.extractApiKey(r)
+	return providedKey == expectedKey
+}
 
-	var providedKey string
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		providedKey = strings.TrimPrefix(authHeader, "Bearer ")
-	} else if apiKeyHeader != "" {
-		providedKey = apiKeyHeader
+// validateAnyApiKey 验证任意有效的 API Key（新系统或旧系统）
+func (h *Handler) validateAnyApiKey(r *http.Request) bool {
+	// 如果没有要求 API Key，直接通过
+	if !config.IsApiKeyRequired() {
+		return true
 	}
 
-	return providedKey == expectedKey
+	// 优先验证新系统的 API Keys
+	if h.validateManagedApiKey(r) {
+		return true
+	}
+
+	// 回退到旧系统的全局访问密钥
+	expectedKey := config.GetApiKey()
+	if expectedKey != "" {
+		providedKey := h.extractApiKey(r)
+		return providedKey == expectedKey
+	}
+
+	return false
 }
 
 // ServeHTTP 路由分发
@@ -341,26 +501,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 路由
 	switch {
-	// API 端点（需要验证 API Key）
+	// 对话接口（使用 API Keys 管理系统验证）
 	case path == "/v1/messages" || path == "/messages" || path == "/anthropic/v1/messages":
-		if !h.validateApiKey(r) {
+		if !h.validateManagedApiKey(r) {
 			h.sendClaudeError(w, 401, "authentication_error", "Invalid or missing API key")
 			return
 		}
 		h.handleClaudeMessages(w, r)
 	case path == "/v1/messages/count_tokens" || path == "/messages/count_tokens":
-		if !h.validateApiKey(r) {
+		if !h.validateManagedApiKey(r) {
 			h.sendClaudeError(w, 401, "authentication_error", "Invalid or missing API key")
 			return
 		}
 		h.handleCountTokens(w, r)
 	case path == "/v1/chat/completions" || path == "/chat/completions":
-		if !h.validateApiKey(r) {
+		if !h.validateManagedApiKey(r) {
 			h.sendOpenAIError(w, 401, "authentication_error", "Invalid or missing API key")
 			return
 		}
 		h.handleOpenAIChat(w, r)
 	case path == "/v1/models" || path == "/models":
+		if !h.validateApiKey(r) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(401)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid or missing API key"})
+			return
+		}
 		h.handleModels(w, r)
 	case path == "/api/event_logging/batch":
 		// Claude Code 遥测端点 - 直接返回 200 OK
@@ -379,7 +545,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/health" || path == "/":
 		h.handleHealth(w, r)
 
-	// 统计端点（需要 API Key 鉴权）
+	// 统计端点（使用全局访问密钥验证）
 	case path == "/v1/stats":
 		if !h.validateApiKey(r) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -2015,6 +2181,9 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/full") && r.Method == "GET":
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/full")
 		h.apiGetAccountFull(w, r, id)
+	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/overage") && r.Method == "POST":
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/overage")
+		h.apiSetOverage(w, r, id)
 	case strings.HasPrefix(path, "/accounts/") && r.Method == "DELETE":
 		h.apiDeleteAccount(w, r, strings.TrimPrefix(path, "/accounts/"))
 	case strings.HasPrefix(path, "/accounts/") && r.Method == "PUT":
@@ -2059,6 +2228,18 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiGetPromptFilter(w, r)
 	case path == "/prompt-filter" && r.Method == "POST":
 		h.apiUpdatePromptFilter(w, r)
+	case path == "/keys" && r.Method == "GET":
+		h.apiGetKeys(w, r)
+	case path == "/keys" && r.Method == "POST":
+		h.apiCreateKey(w, r)
+	case strings.HasPrefix(path, "/keys/") && r.Method == "PUT":
+		h.apiUpdateKey(w, r, strings.TrimPrefix(path, "/keys/"))
+	case strings.HasPrefix(path, "/keys/") && r.Method == "DELETE":
+		h.apiDeleteKey(w, r, strings.TrimPrefix(path, "/keys/"))
+	case path == "/audit-logs" && r.Method == "GET":
+		h.apiGetAuditLogs(w, r)
+	case path == "/audit-logs" && r.Method == "DELETE":
+		h.apiClearAuditLogs(w, r)
 	case path == "/version" && r.Method == "GET":
 		h.apiGetVersion(w, r)
 	case path == "/export" && r.Method == "POST":
@@ -2085,6 +2266,9 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 		// 获取运行时统计
 		stats := statsMap[a.ID]
 
+		// 动态解析UsageData
+		usageFields := parseUsageData(a.UsageData)
+
 		result[i] = map[string]interface{}{
 			"id":                a.ID,
 			"email":             a.Email,
@@ -2104,19 +2288,18 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 			"allowOverage":      a.AllowOverage,
 			"overageWeight":     a.OverageWeight,
 			"proxyURL":          a.ProxyURL,
-			"subscriptionType":  a.SubscriptionType,
-			"subscriptionTitle": a.SubscriptionTitle,
-			"daysRemaining":     a.DaysRemaining,
-			"usageCurrent":      a.UsageCurrent,
-			"usageLimit":        a.UsageLimit,
-			"usagePercent":      a.UsagePercent,
-			"nextResetDate":     a.NextResetDate,
+			"subscriptionType":  usageFields["subscriptionType"],
+			"subscriptionTitle": usageFields["subscriptionTitle"],
+			"usageCurrent":      usageFields["usageCurrent"],
+			"usageLimit":        usageFields["usageLimit"],
+			"usagePercent":      usageFields["usagePercent"],
+			"nextResetDate":     usageFields["nextResetDate"],
 			"lastRefresh":       a.LastRefresh,
-			"trialUsageCurrent": a.TrialUsageCurrent,
-			"trialUsageLimit":   a.TrialUsageLimit,
-			"trialUsagePercent": a.TrialUsagePercent,
-			"trialStatus":       a.TrialStatus,
-			"trialExpiresAt":    a.TrialExpiresAt,
+			"trialUsageCurrent": usageFields["trialUsageCurrent"],
+			"trialUsageLimit":   usageFields["trialUsageLimit"],
+			"trialUsagePercent": usageFields["trialUsagePercent"],
+			"trialStatus":       usageFields["trialStatus"],
+			"trialExpiresAt":    usageFields["trialExpiresAt"],
 			"requestCount":      stats.RequestCount,
 			"errorCount":        stats.ErrorCount,
 			"totalTokens":       stats.TotalTokens,
@@ -2157,16 +2340,113 @@ func (h *Handler) apiAddAccount(w http.ResponseWriter, r *http.Request) {
 			}
 		}(account)
 	}
+
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "account.create",
+		Level:   "info",
+		User:    "admin",
+		Message: fmt.Sprintf("Account created: %s", account.Email),
+		Target:  account.Email,
+		Metadata: map[string]interface{}{
+			"accountId":  account.ID,
+			"authMethod": account.AuthMethod,
+			"region":     account.Region,
+		},
+	})
+
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": account.ID})
 }
 
+func (h *Handler) apiSetOverage(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON"})
+		return
+	}
+
+	// 获取账户
+	accounts := config.GetAccounts()
+	var account *config.Account
+	for i := range accounts {
+		if accounts[i].ID == id {
+			account = &accounts[i]
+			break
+		}
+	}
+	if account == nil {
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Account not found"})
+		return
+	}
+
+	// 检查账户是否支持超额
+	if account.UsageData != "" {
+		var usage UsageLimitsResponse
+		if err := json.Unmarshal([]byte(account.UsageData), &usage); err == nil {
+			if usage.SubscriptionInfo == nil || usage.SubscriptionInfo.OverageCapability != "OVERAGE_CAPABLE" {
+				w.WriteHeader(400)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Account does not support overage"})
+				return
+			}
+		}
+	}
+
+	// 调用 SetUserPreference API
+	if err := SetUserPreference(account, req.Enabled); err != nil {
+		logger.Errorf("[SetOverage] Failed to set overage for %s: %v", account.Email, err)
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// 刷新账户信息以获取最新状态
+	info, err := RefreshAccountInfo(account)
+	if err != nil {
+		logger.Warnf("[SetOverage] Failed to refresh account info: %v", err)
+	} else {
+		config.UpdateAccountInfo(account.ID, *info)
+	}
+
+	h.pool.Reload()
+
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func (h *Handler) apiDeleteAccount(w http.ResponseWriter, r *http.Request, id string) {
+	// Get account info before deletion for audit log
+	accounts := config.GetAccounts()
+	var accountEmail string
+	for _, acc := range accounts {
+		if acc.ID == id {
+			accountEmail = acc.Email
+			break
+		}
+	}
+
 	if err := config.DeleteAccount(id); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 	h.pool.Reload()
+
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "account.delete",
+		Level:   "warning",
+		User:    "admin",
+		Message: fmt.Sprintf("Account deleted: %s", accountEmail),
+		Target:  accountEmail,
+		Metadata: map[string]interface{}{
+			"accountId": id,
+		},
+	})
+
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
@@ -2195,6 +2475,8 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 
 	// 只更新传入的字段
 	oldEnabled := existing.Enabled
+	tokenUpdated := false
+
 	if v, ok := updates["enabled"].(bool); ok {
 		existing.Enabled = v
 	}
@@ -2217,10 +2499,25 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 		existing.ProxyURL = v
 	}
 
+	// 更新访问令牌和刷新令牌
+	if v, ok := updates["accessToken"].(string); ok && v != "" {
+		existing.AccessToken = v
+		tokenUpdated = true
+	}
+	if v, ok := updates["refreshToken"].(string); ok && v != "" {
+		existing.RefreshToken = v
+		tokenUpdated = true
+	}
+
 	if err := config.UpdateAccount(id, *existing); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+
+	// 如果令牌被更新，同步到内存池
+	if tokenUpdated {
+		h.pool.UpdateToken(id, existing.AccessToken, existing.RefreshToken, existing.ExpiresAt)
 	}
 
 	h.pool.Reload()
@@ -2232,6 +2529,26 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 			}
 		}(*existing)
 	}
+
+	// Add audit log
+	changes := make(map[string]interface{})
+	for key, value := range updates {
+		if key != "accessToken" && key != "refreshToken" { // Don't log sensitive tokens
+			changes[key] = value
+		}
+	}
+	config.AddAuditLog(config.AuditLog{
+		Action:  "account.update",
+		Level:   "info",
+		User:    "admin",
+		Message: fmt.Sprintf("Account updated: %s", existing.Email),
+		Target:  existing.Email,
+		Changes: changes,
+		Metadata: map[string]interface{}{
+			"accountId": id,
+		},
+	})
+
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
@@ -2334,6 +2651,23 @@ func (h *Handler) apiBatchAccounts(w http.ResponseWriter, r *http.Request) {
 			"success":   true,
 			"refreshed": successCount,
 			"failed":    failCount,
+		})
+
+	case "delete":
+		successCount := 0
+		failCount := 0
+		for _, id := range req.IDs {
+			if err := config.DeleteAccount(id); err != nil {
+				failCount++
+			} else {
+				successCount++
+			}
+		}
+		h.pool.Reload()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"deleted": successCount,
+			"failed":  failCount,
 		})
 
 	default:
@@ -2804,11 +3138,25 @@ func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "settings.update",
+		Level:   "info",
+		User:    "admin",
+		Message: "Settings updated",
+		Metadata: map[string]interface{}{
+			"requireApiKey":  req.RequireApiKey,
+			"allowOverUsage": req.AllowOverUsage,
+		},
+	})
+
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
 func (h *Handler) apiGetStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"accounts":        h.pool.Count(),
+		"available":       h.pool.AvailableCount(),
 		"totalRequests":   atomic.LoadInt64(&h.totalRequests),
 		"successRequests": atomic.LoadInt64(&h.successRequests),
 		"failedRequests":  atomic.LoadInt64(&h.failedRequests),
@@ -2827,6 +3175,15 @@ func (h *Handler) apiResetStats(w http.ResponseWriter, r *http.Request) {
 	h.totalCredits = 0
 	h.creditsMu.Unlock()
 	config.UpdateStats(0, 0, 0, 0, 0)
+
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "stats.reset",
+		Level:   "warning",
+		User:    "admin",
+		Message: "Statistics reset",
+	})
+
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
@@ -3034,6 +3391,9 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 		}
 	}
 
+	// 动态解析UsageData
+	usageFields := parseUsageData(account.UsageData)
+
 	// 返回完整账号信息（包含敏感字段）
 	result := map[string]interface{}{
 		"id":                account.ID,
@@ -3057,19 +3417,18 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 		"banStatus":         account.BanStatus,
 		"banReason":         account.BanReason,
 		"banTime":           account.BanTime,
-		"subscriptionType":  account.SubscriptionType,
-		"subscriptionTitle": account.SubscriptionTitle,
-		"daysRemaining":     account.DaysRemaining,
-		"usageCurrent":      account.UsageCurrent,
-		"usageLimit":        account.UsageLimit,
-		"usagePercent":      account.UsagePercent,
-		"nextResetDate":     account.NextResetDate,
+		"subscriptionType":  usageFields["subscriptionType"],
+		"subscriptionTitle": usageFields["subscriptionTitle"],
+		"usageCurrent":      usageFields["usageCurrent"],
+		"usageLimit":        usageFields["usageLimit"],
+		"usagePercent":      usageFields["usagePercent"],
+		"nextResetDate":     usageFields["nextResetDate"],
 		"lastRefresh":       account.LastRefresh,
-		"trialUsageCurrent": account.TrialUsageCurrent,
-		"trialUsageLimit":   account.TrialUsageLimit,
-		"trialUsagePercent": account.TrialUsagePercent,
-		"trialStatus":       account.TrialStatus,
-		"trialExpiresAt":    account.TrialExpiresAt,
+		"trialUsageCurrent": usageFields["trialUsageCurrent"],
+		"trialUsageLimit":   usageFields["trialUsageLimit"],
+		"trialUsagePercent": usageFields["trialUsagePercent"],
+		"trialStatus":       usageFields["trialStatus"],
+		"trialExpiresAt":    usageFields["trialExpiresAt"],
 		"requestCount":      stats.RequestCount,
 		"errorCount":        stats.ErrorCount,
 		"totalTokens":       stats.TotalTokens,
@@ -3375,15 +3734,40 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 			authMethod = "IdC"
 		}
 
+		// 动态解析UsageData
+		usageFields := parseUsageData(a.UsageData)
+
 		// 映射订阅类型
 		subType := "Free"
-		rawType := strings.ToUpper(a.SubscriptionType)
-		if strings.Contains(rawType, "PRO_PLUS") || strings.Contains(rawType, "PROPLUS") {
-			subType = "Pro_Plus"
-		} else if strings.Contains(rawType, "PRO") {
-			subType = "Pro"
-		} else if strings.Contains(rawType, "POWER") {
-			subType = "Pro_Plus"
+		if subTypeStr, ok := usageFields["subscriptionType"].(string); ok {
+			rawType := strings.ToUpper(subTypeStr)
+			if strings.Contains(rawType, "PRO_PLUS") || strings.Contains(rawType, "PROPLUS") {
+				subType = "Pro_Plus"
+			} else if strings.Contains(rawType, "PRO") {
+				subType = "Pro"
+			} else if strings.Contains(rawType, "POWER") {
+				subType = "Pro_Plus"
+			}
+		}
+
+		subTitle := ""
+		if title, ok := usageFields["subscriptionTitle"].(string); ok {
+			subTitle = title
+		}
+
+		usageCurrent := float64(0)
+		if current, ok := usageFields["usageCurrent"].(float64); ok {
+			usageCurrent = current
+		}
+
+		usageLimit := float64(0)
+		if limit, ok := usageFields["usageLimit"].(float64); ok {
+			usageLimit = limit
+		}
+
+		usagePercent := float64(0)
+		if percent, ok := usageFields["usagePercent"].(float64); ok {
+			usagePercent = percent
 		}
 
 		exportAccounts = append(exportAccounts, ExportAccount{
@@ -3406,12 +3790,12 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 			},
 			Subscription: ExportSubscription{
 				Type:  subType,
-				Title: a.SubscriptionTitle,
+				Title: subTitle,
 			},
 			Usage: ExportUsage{
-				Current:     a.UsageCurrent,
-				Limit:       a.UsageLimit,
-				PercentUsed: a.UsagePercent,
+				Current:     usageCurrent,
+				Limit:       usageLimit,
+				PercentUsed: usagePercent,
 				LastUpdated: time.Now().UnixMilli(),
 			},
 			Tags:       []string{},
@@ -3441,3 +3825,189 @@ func clampInt(v, min, max int) int {
 	}
 	return v
 }
+
+// ==================== API Keys Management ====================
+
+func (h *Handler) apiGetKeys(w http.ResponseWriter, r *http.Request) {
+	keys := config.GetApiKeys()
+	json.NewEncoder(w).Encode(keys)
+}
+
+func (h *Handler) apiCreateKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string   `json:"name"`
+		ExpiresIn   string   `json:"expiresIn"`   // "7d", "30d", "90d", "1y", "" (never)
+		Permissions []string `json:"permissions"`
+		Enabled     bool     `json:"enabled"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request"})
+		return
+	}
+
+	// Generate new API key
+	keyValue := config.GenerateApiKey()
+
+	// Calculate expiration
+	var expiresAt int64
+	if req.ExpiresIn != "" {
+		now := time.Now()
+		switch req.ExpiresIn {
+		case "7d":
+			expiresAt = now.AddDate(0, 0, 7).Unix()
+		case "30d":
+			expiresAt = now.AddDate(0, 0, 30).Unix()
+		case "90d":
+			expiresAt = now.AddDate(0, 0, 90).Unix()
+		case "1y":
+			expiresAt = now.AddDate(1, 0, 0).Unix()
+		}
+	}
+
+	// Create API key
+	apiKey := config.ApiKey{
+		ID:          config.GenerateMachineId(),
+		Name:        req.Name,
+		Key:         keyValue,
+		Enabled:     req.Enabled,
+		Permissions: req.Permissions,
+		ExpiresAt:   expiresAt,
+	}
+
+	if err := config.AddApiKey(apiKey); err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to create API key"})
+		return
+	}
+
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "apikey.create",
+		Level:   "info",
+		User:    "admin",
+		Message: fmt.Sprintf("API key created: %s", req.Name),
+		Target:  req.Name,
+		Metadata: map[string]interface{}{
+			"keyId":       apiKey.ID,
+			"permissions": req.Permissions,
+			"expiresAt":   expiresAt,
+		},
+	})
+
+	// Return the key (only time it's shown)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":          apiKey.ID,
+		"name":        apiKey.Name,
+		"key":         keyValue, // Only shown once
+		"enabled":     apiKey.Enabled,
+		"permissions": apiKey.Permissions,
+		"createdAt":   apiKey.CreatedAt,
+		"expiresAt":   apiKey.ExpiresAt,
+	})
+}
+
+func (h *Handler) apiUpdateKey(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		Name        string   `json:"name"`
+		Enabled     bool     `json:"enabled"`
+		Permissions []string `json:"permissions"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request"})
+		return
+	}
+
+	// Get existing key
+	existingKey := config.GetApiKeyByID(id)
+	if existingKey == nil {
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": "API key not found"})
+		return
+	}
+
+	// Update fields
+	existingKey.Name = req.Name
+	existingKey.Enabled = req.Enabled
+	existingKey.Permissions = req.Permissions
+
+	if err := config.UpdateApiKey(id, *existingKey); err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "apikey.update",
+		Level:   "info",
+		User:    "admin",
+		Message: fmt.Sprintf("API key updated: %s", req.Name),
+		Target:  req.Name,
+		Metadata: map[string]interface{}{
+			"keyId":   id,
+			"enabled": req.Enabled,
+		},
+	})
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h *Handler) apiDeleteKey(w http.ResponseWriter, r *http.Request, id string) {
+	// Get key info before deletion for audit log
+	existingKey := config.GetApiKeyByID(id)
+	var keyName string
+	if existingKey != nil {
+		keyName = existingKey.Name
+	}
+
+	if err := config.DeleteApiKey(id); err != nil {
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Add audit log
+	config.AddAuditLog(config.AuditLog{
+		Action:  "apikey.delete",
+		Level:   "warning",
+		User:    "admin",
+		Message: fmt.Sprintf("API key deleted: %s", keyName),
+		Target:  keyName,
+		Metadata: map[string]interface{}{
+			"keyId": id,
+		},
+	})
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// ==================== Audit Logs API ====================
+
+func (h *Handler) apiGetAuditLogs(w http.ResponseWriter, r *http.Request) {
+	logs := config.GetAuditLogs()
+	json.NewEncoder(w).Encode(logs)
+}
+
+func (h *Handler) apiClearAuditLogs(w http.ResponseWriter, r *http.Request) {
+	if err := config.ClearAuditLogs(); err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Log the clear action
+	config.AddAuditLog(config.AuditLog{
+		Action:  "auditlogs.clear",
+		Level:   "warning",
+		User:    "admin",
+		Message: "Audit logs cleared",
+	})
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// ==================== End Audit Logs API ====================

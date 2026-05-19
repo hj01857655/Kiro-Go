@@ -1,0 +1,27 @@
+# Binaries
+*.exe
+*.exe~
+kiro-go
+
+# Data directory
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/package-lock.json
+
+# Temporary files
+*.log
+*.tmp
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+web/node_modules/
