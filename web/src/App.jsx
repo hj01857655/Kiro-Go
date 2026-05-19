@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Toaster } from './components/ui/sonner'
 import { toast } from 'sonner'
 import { RefreshCw, Trash2, Power, Plus, Search } from 'lucide-react'
+import SettingsPanel from './components/SettingsPanel'
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -545,15 +546,7 @@ export default function App() {
           </TabsContent>
 
           <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>系统设置</CardTitle>
-                <CardDescription>配置系统参数</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">功能开发中...</p>
-              </CardContent>
-            </Card>
+            <SettingsPanel password={password} />
           </TabsContent>
         </Tabs>
       </main>
