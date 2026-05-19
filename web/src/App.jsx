@@ -7,6 +7,7 @@ import ApiKeysPanel from './components/ApiKeysPanel'
 import SettingsPanel from './components/SettingsPanel'
 import AccountDetailModal from './components/AccountDetailModal'
 import AddAccountModal from './components/AddAccountModal'
+import ConfirmDialog from './components/ConfirmDialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Button } from './components/ui/button'
 import { LogOut } from 'lucide-react'
@@ -22,6 +23,15 @@ export default function App() {
   const [addOpen, setAddOpen] = useState(false)
   const [accountDetail, setAccountDetail] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+
+  // 确认对话框状态
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: null,
+    variant: 'default'
+  })
 
   useEffect(() => {
     const savedPassword = localStorage.getItem('admin_password')
@@ -78,6 +88,7 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to load accounts:', e)
+      toast.error('加载账户失败')
     } finally {
       setLoading(false)
     }
@@ -98,11 +109,19 @@ export default function App() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_password')
-    setAuthenticated(false)
-    setPassword('')
-    setAccounts([])
-    setApiKeys([])
+    setConfirmDialog({
+      open: true,
+      title: '确认退出',
+      description: '确定要退出登录吗？',
+      onConfirm: () => {
+        localStorage.removeItem('admin_password')
+        setAuthenticated(false)
+        setPassword('')
+        setAccounts([])
+        setApiKeys([])
+        setConfirmDialog({ ...confirmDialog, open: false })
+      }
+    })
   }
 
   const toggleAccount = async (id, enabled) => {
@@ -144,21 +163,97 @@ export default function App() {
   }
 
   const deleteAccount = async (id) => {
-    if (!window.confirm('确定要删除此账户吗？')) return
-    try {
-      const res = await fetch(`/admin/api/accounts/${id}`, {
-        method: 'DELETE',
-        headers: { 'X-Admin-Password': password }
-      })
-      if (res.ok) {
-        loadAccounts()
-        toast.success('删除成功')
-      } else {
-        toast.error('删除失败')
+    setConfirmDialog({
+      open: true,
+      title: '确认删除',
+      description: '确定要删除此账户吗？此操作无法撤销。',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/admin/api/accounts/${id}`, {
+            method: 'DELETE',
+            headers: { 'X-Admin-Password': password }
+          })
+          if (res.ok) {
+            loadAccounts()
+            toast.success('删除成功')
+          } else {
+            toast.error('删除失败')
+          }
+        } catch (e) {
+          toast.error('删除失败')
+        }
+        setConfirmDialog({ ...confirmDialog, open: false })
       }
+    })
+  }
+
+  const handleBatchEnable = async (ids) => {
+    try {
+      await Promise.all(
+        ids.map(id =>
+          fetch(`/admin/api/accounts/${id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Admin-Password': password
+            },
+            body: JSON.stringify({ enabled: true })
+          })
+        )
+      )
+      loadAccounts()
+      toast.success(`已启用 ${ids.length} 个账户`)
     } catch (e) {
-      toast.error('删除失败')
+      toast.error('批量启用失败')
     }
+  }
+
+  const handleBatchDisable = async (ids) => {
+    try {
+      await Promise.all(
+        ids.map(id =>
+          fetch(`/admin/api/accounts/${id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Admin-Password': password
+            },
+            body: JSON.stringify({ enabled: false })
+          })
+        )
+      )
+      loadAccounts()
+      toast.success(`已禁用 ${ids.length} 个账户`)
+    } catch (e) {
+      toast.error('批量禁用失败')
+    }
+  }
+
+  const handleBatchDelete = async (ids) => {
+    setConfirmDialog({
+      open: true,
+      title: '确认批量删除',
+      description: `确定要删除选中的 ${ids.length} 个账户吗？此操作无法撤销。`,
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await Promise.all(
+            ids.map(id =>
+              fetch(`/admin/api/accounts/${id}`, {
+                method: 'DELETE',
+                headers: { 'X-Admin-Password': password }
+              })
+            )
+          )
+          loadAccounts()
+          toast.success(`已删除 ${ids.length} 个账户`)
+        } catch (e) {
+          toast.error('批量删除失败')
+        }
+        setConfirmDialog({ ...confirmDialog, open: false })
+      }
+    })
   }
 
   const showDetail = async (id) => {
@@ -204,21 +299,29 @@ export default function App() {
   }
 
   const deleteApiKey = async (id) => {
-    if (!window.confirm('确定要删除此API密钥吗？')) return
-    try {
-      const res = await fetch(`/admin/api/keys/${id}`, {
-        method: 'DELETE',
-        headers: { 'X-Admin-Password': password }
-      })
-      if (res.ok) {
-        loadApiKeys()
-        toast.success('删除成功')
-      } else {
-        toast.error('删除失败')
+    setConfirmDialog({
+      open: true,
+      title: '确认删除',
+      description: '确定要删除此API密钥吗？此操作无法撤销。',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/admin/api/keys/${id}`, {
+            method: 'DELETE',
+            headers: { 'X-Admin-Password': password }
+          })
+          if (res.ok) {
+            loadApiKeys()
+            toast.success('删除成功')
+          } else {
+            toast.error('删除失败')
+          }
+        } catch (e) {
+          toast.error('删除失败')
+        }
+        setConfirmDialog({ ...confirmDialog, open: false })
       }
-    } catch (e) {
-      toast.error('删除失败')
-    }
+    })
   }
 
   if (!authenticated) {
@@ -259,6 +362,9 @@ export default function App() {
               onRefreshAccount={refreshAccount}
               onDelete={deleteAccount}
               onShowDetail={showDetail}
+              onBatchEnable={handleBatchEnable}
+              onBatchDisable={handleBatchDisable}
+              onBatchDelete={handleBatchDelete}
             />
           </TabsContent>
 
@@ -288,6 +394,15 @@ export default function App() {
         onOpenChange={setAddOpen}
         password={password}
         onSuccess={() => loadAccounts()}
+      />
+
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        onConfirm={confirmDialog.onConfirm}
+        variant={confirmDialog.variant}
       />
 
       <Toaster />

@@ -1,13 +1,24 @@
 import { useState } from 'react'
 import { Button } from './ui/button'
-import { Input } from './ui/input'
 import { Card, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
+import { Checkbox } from './ui/checkbox'
 import {
   RefreshCw, Trash2, Power, Plus, Search,
   Eye, Loader2, AlertCircle, CheckCircle2,
-  TrendingUp, Users, Activity
+  TrendingUp, Users, Activity, Filter, Download,
+  PowerOff, Check, X
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu'
+import { Input } from './ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 export default function AccountsPanel({
   accounts,
@@ -19,9 +30,15 @@ export default function AccountsPanel({
   onToggle,
   onRefreshAccount,
   onDelete,
-  onShowDetail
+  onShowDetail,
+  onBatchEnable,
+  onBatchDisable,
+  onBatchDelete
 }) {
   const [actionLoading, setActionLoading] = useState({})
+  const [selectedIds, setSelectedIds] = useState([])
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [sortBy, setSortBy] = useState('lastUsed')
 
   const handleAction = async (id, action) => {
     setActionLoading({ ...actionLoading, [id]: action })
@@ -29,12 +46,57 @@ export default function AccountsPanel({
     setActionLoading({ ...actionLoading, [id]: null })
   }
 
-  const filteredAccounts = accounts.filter(acc =>
-    !searchTerm ||
-    acc.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    acc.nickname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    acc.id?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const toggleSelect = (id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredAccounts.length) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(filteredAccounts.map(a => a.id))
+    }
+  }
+
+  const handleBatchAction = async (action) => {
+    if (selectedIds.length === 0) return
+    await action(selectedIds)
+    setSelectedIds([])
+  }
+
+  let filteredAccounts = accounts.filter(acc => {
+    const matchesSearch = !searchTerm ||
+      acc.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      acc.nickname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      acc.id?.toLowerCase().includes(searchTerm.toLowerCase())
+
+    const matchesFilter = filterStatus === 'all' ||
+      (filterStatus === 'enabled' && acc.enabled) ||
+      (filterStatus === 'disabled' && !acc.enabled) ||
+      (filterStatus === 'pro' && acc.subscriptionType?.includes('Pro'))
+
+    return matchesSearch && matchesFilter
+  })
+
+  // 排序
+  filteredAccounts = [...filteredAccounts].sort((a, b) => {
+    switch (sortBy) {
+      case 'lastUsed':
+        return (b.lastUsed || 0) - (a.lastUsed || 0)
+      case 'email':
+        return (a.email || '').localeCompare(b.email || '')
+      case 'requests':
+        return (b.requestCount || 0) - (a.requestCount || 0)
+      case 'usage':
+        const aUsage = a.usageCurrent / a.usageLimit || 0
+        const bUsage = b.usageCurrent / b.usageLimit || 0
+        return bUsage - aUsage
+      default:
+        return 0
+    }
+  })
 
   const stats = {
     total: accounts.length,
@@ -67,7 +129,7 @@ export default function AccountsPanel({
     <div className="space-y-6">
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('all')}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -78,7 +140,7 @@ export default function AccountsPanel({
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('enabled')}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -89,7 +151,7 @@ export default function AccountsPanel({
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('disabled')}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -100,7 +162,7 @@ export default function AccountsPanel({
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('pro')}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -114,28 +176,86 @@ export default function AccountsPanel({
       </div>
 
       {/* 操作栏 */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex-1 w-full sm:w-auto">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="搜索账户（邮箱、昵称、ID）..."
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-9 w-full"
-            />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+          <div className="flex-1 w-full sm:w-auto">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="搜索账户（邮箱、昵称、ID）..."
+                value={searchTerm}
+                onChange={(e) => onSearchChange(e.target.value)}
+                className="pl-9 w-full"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="lastUsed">最后使用</SelectItem>
+                <SelectItem value="email">邮箱</SelectItem>
+                <SelectItem value="requests">请求数</SelectItem>
+                <SelectItem value="usage">用量</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={onRefresh} variant="outline" disabled={loading}>
+              <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">刷新</span>
+            </Button>
+            <Button onClick={onAdd}>
+              <Plus className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">添加</span>
+            </Button>
           </div>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <Button onClick={onRefresh} variant="outline" disabled={loading} className="flex-1 sm:flex-none">
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-          <Button onClick={onAdd} className="flex-1 sm:flex-none">
-            <Plus className="w-4 h-4 mr-2" />
-            添加账户
-          </Button>
-        </div>
+
+        {/* 批量操作栏 */}
+        {selectedIds.length > 0 && (
+          <Card className="border-purple-200 bg-purple-50">
+            <CardContent className="py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={selectedIds.length === filteredAccounts.length}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                  <span className="text-sm font-medium">
+                    已选择 {selectedIds.length} 个账户
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBatchAction(onBatchEnable)}
+                  >
+                    <Check className="w-4 h-4 mr-1" />
+                    批量启用
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBatchAction(onBatchDisable)}
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    批量禁用
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleBatchAction(onBatchDelete)}
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    批量删除
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* 账户列表 */}
@@ -149,9 +269,9 @@ export default function AccountsPanel({
           <CardContent className="py-16 text-center">
             <Activity className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <p className="text-lg font-medium text-muted-foreground mb-2">
-              {searchTerm ? '未找到匹配的账户' : '暂无账户'}
+              {searchTerm || filterStatus !== 'all' ? '未找到匹配的账户' : '暂无账户'}
             </p>
-            {!searchTerm && (
+            {!searchTerm && filterStatus === 'all' && (
               <Button onClick={onAdd} variant="outline" className="mt-4">
                 <Plus className="w-4 h-4 mr-2" />
                 添加第一个账户
@@ -165,7 +285,14 @@ export default function AccountsPanel({
             <Card key={account.id} className="hover:shadow-lg transition-all duration-200 border-l-4"
                   style={{ borderLeftColor: account.enabled ? '#10b981' : '#d1d5db' }}>
               <CardContent className="pt-6">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  {/* 选择框 */}
+                  <Checkbox
+                    checked={selectedIds.includes(account.id)}
+                    onCheckedChange={() => toggleSelect(account.id)}
+                    className="mt-1"
+                  />
+
                   {/* 账户信息 */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
