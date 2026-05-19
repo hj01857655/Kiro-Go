@@ -1,170 +1,158 @@
 <template>
-  <div class="card">
-    <div class="flex justify-between items-center mb-5 pb-3 border-b border-gray-200 dark:border-gray-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('auditLogs.title') }}</h2>
-      <div class="flex gap-2">
-        <button @click="exportLogs" class="btn-secondary btn-sm" :disabled="loading || logs.length === 0">
-          📥 {{ t('auditLogs.exportLogs') }}
-        </button>
-        <button @click="clearLogs" class="btn-danger btn-sm" :disabled="loading || logs.length === 0">
-          🗑️ {{ t('auditLogs.clearLogs') }}
-        </button>
+  <el-card>
+    <template #header>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 600;">{{ t('auditLogs.title') }}</h2>
+        <el-button-group>
+          <el-button size="small" :disabled="loading || logs.length === 0" @click="exportLogs">
+            <el-icon><Download /></el-icon>
+            {{ t('auditLogs.exportLogs') }}
+          </el-button>
+          <el-button size="small" type="danger" :disabled="loading || logs.length === 0" @click="clearLogs">
+            <el-icon><Delete /></el-icon>
+            {{ t('auditLogs.clearLogs') }}
+          </el-button>
+        </el-button-group>
       </div>
-    </div>
+    </template>
 
-    <div class="mb-5">
-      <p class="text-gray-600 dark:text-gray-400 text-sm">{{ t('auditLogs.description') }}</p>
-    </div>
+    <p style="margin-bottom: 16px; font-size: 14px; color: var(--el-text-color-secondary);">
+      {{ t('auditLogs.description') }}
+    </p>
 
     <!-- Filters -->
-    <div class="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg mb-4 border border-gray-200 dark:border-gray-700">
-      <div class="flex gap-3 items-center">
-        <div class="flex-1 max-w-[400px] relative">
-          <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">🔍</div>
-          <input
+    <el-card shadow="never" style="margin-bottom: 16px;">
+      <el-row :gutter="12">
+        <el-col :xs="24" :sm="12" :md="10">
+          <el-input
             v-model="searchQuery"
-            type="text"
             :placeholder="t('auditLogs.searchPlaceholder')"
-            class="input pl-9"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-            name="audit-search"
-            data-lpignore="true"
-            data-form-type="other"
+            clearable
           >
-        </div>
-        <select v-model="filterAction" class="input w-[160px]">
-          <option value="all">📝 {{ t('auditLogs.allActions') }}</option>
-          <option value="account.create">{{ t('auditLogs.accountCreate') }}</option>
-          <option value="account.update">{{ t('auditLogs.accountUpdate') }}</option>
-          <option value="account.delete">{{ t('auditLogs.accountDelete') }}</option>
-          <option value="apikey.create">{{ t('auditLogs.apikeyCreate') }}</option>
-          <option value="apikey.update">{{ t('auditLogs.apikeyUpdate') }}</option>
-          <option value="apikey.delete">{{ t('auditLogs.apikeyDelete') }}</option>
-          <option value="settings.update">{{ t('auditLogs.settingsUpdate') }}</option>
-          <option value="stats.reset">{{ t('auditLogs.statsReset') }}</option>
-        </select>
-        <select v-model="filterTimeRange" class="input w-[140px]">
-          <option value="all">📅 {{ t('auditLogs.allTime') }}</option>
-          <option value="today">{{ t('auditLogs.today') }}</option>
-          <option value="week">{{ t('auditLogs.lastWeek') }}</option>
-          <option value="month">{{ t('auditLogs.lastMonth') }}</option>
-        </select>
-      </div>
-    </div>
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-col>
+        <el-col :xs="12" :sm="6" :md="7">
+          <el-select v-model="filterAction" style="width: 100%;">
+            <el-option value="all" :label="t('auditLogs.allActions')" />
+            <el-option value="account.create" :label="t('auditLogs.accountCreate')" />
+            <el-option value="account.update" :label="t('auditLogs.accountUpdate')" />
+            <el-option value="account.delete" :label="t('auditLogs.accountDelete')" />
+            <el-option value="apikey.create" :label="t('auditLogs.apikeyCreate')" />
+            <el-option value="apikey.update" :label="t('auditLogs.apikeyUpdate')" />
+            <el-option value="apikey.delete" :label="t('auditLogs.apikeyDelete')" />
+            <el-option value="settings.update" :label="t('auditLogs.settingsUpdate')" />
+            <el-option value="stats.reset" :label="t('auditLogs.statsReset')" />
+          </el-select>
+        </el-col>
+        <el-col :xs="12" :sm="6" :md="7">
+          <el-select v-model="filterTimeRange" style="width: 100%;">
+            <el-option value="all" :label="t('auditLogs.allTime')" />
+            <el-option value="today" :label="t('auditLogs.today')" />
+            <el-option value="week" :label="t('auditLogs.lastWeek')" />
+            <el-option value="month" :label="t('auditLogs.lastMonth')" />
+          </el-select>
+        </el-col>
+      </el-row>
+    </el-card>
 
-    <!-- Stats Bar -->
-    <div class="flex gap-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4 flex-wrap">
-      <div class="flex flex-col gap-1">
-        <span class="text-[11px] text-gray-600 dark:text-gray-400 uppercase font-medium">{{ t('auditLogs.totalLogs') }}</span>
-        <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ filteredLogs.length }}</span>
-      </div>
-      <div class="flex flex-col gap-1">
-        <span class="text-[11px] text-gray-600 dark:text-gray-400 uppercase font-medium">{{ t('auditLogs.todayLogs') }}</span>
-        <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ todayLogsCount }}</span>
-      </div>
-      <div class="flex flex-col gap-1">
-        <span class="text-[11px] text-gray-600 dark:text-gray-400 uppercase font-medium">{{ t('auditLogs.lastAction') }}</span>
-        <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ lastActionTime }}</span>
-      </div>
-    </div>
+    <!-- Stats -->
+    <el-row :gutter="16" style="margin-bottom: 16px;">
+      <el-col :xs="8" :sm="8">
+        <el-statistic :value="filteredLogs.length" :title="t('auditLogs.totalLogs')" />
+      </el-col>
+      <el-col :xs="8" :sm="8">
+        <el-statistic :value="todayLogsCount" :title="t('auditLogs.todayLogs')" />
+      </el-col>
+      <el-col :xs="8" :sm="8">
+        <el-statistic :value="lastActionTime" :title="t('auditLogs.lastAction')" />
+      </el-col>
+    </el-row>
 
-    <!-- Skeleton Loading -->
-    <div v-if="loading" class="flex flex-col gap-3 mb-5">
-      <SkeletonLoader v-for="i in 5" :key="i" type="table-row" />
+    <!-- Loading -->
+    <div v-if="loading">
+      <el-skeleton :rows="5" animated style="margin-bottom: 16px;" />
+      <el-skeleton :rows="5" animated />
     </div>
 
     <!-- Logs List -->
-    <div v-else-if="filteredLogs.length > 0" class="flex flex-col gap-3 mb-5">
-      <div v-for="log in paginatedLogs" :key="log.id" class="log-card" :class="[
-        log.level === 'error' && 'border-l-error',
-        log.level === 'warning' && 'border-l-warning',
-        log.level === 'info' && 'border-l-info'
-      ]">
-        <div class="flex items-center gap-3 mb-2">
-          <div class="text-2xl flex-shrink-0">{{ getActionIcon(log.action) }}</div>
-          <div class="flex-1">
-            <div class="flex items-center gap-2 mb-1">
-              <strong class="text-gray-900 dark:text-gray-100 text-[15px]">{{ getActionLabel(log.action) }}</strong>
-              <span class="log-level" :class="[
-                log.level === 'info' && 'bg-info text-white',
-                log.level === 'warning' && 'bg-warning text-white',
-                log.level === 'error' && 'bg-error text-white'
-              ]">{{ log.level }}</span>
+    <div v-else-if="filteredLogs.length > 0" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+      <el-card
+        v-for="log in paginatedLogs"
+        :key="log.id"
+        shadow="hover"
+        :body-style="{ padding: '16px' }"
+      >
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+          <div style="font-size: 24px; flex-shrink: 0;">{{ getActionIcon(log.action) }}</div>
+          <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <strong style="font-size: 15px;">{{ getActionLabel(log.action) }}</strong>
+              <el-tag
+                :type="log.level === 'error' ? 'danger' : log.level === 'warning' ? 'warning' : 'info'"
+                size="small"
+              >
+                {{ log.level }}
+              </el-tag>
             </div>
-            <div class="text-xs text-gray-500 dark:text-gray-500">{{ formatDateTime(log.timestamp) }}</div>
+            <div style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ formatDateTime(log.timestamp) }}
+            </div>
           </div>
-          <button @click="toggleLogDetails(log.id)" class="btn-secondary btn-sm">
+          <el-button size="small" @click="toggleLogDetails(log.id)">
             {{ expandedLogs.has(log.id) ? t('common.collapse') : t('common.details') }}
-          </button>
+          </el-button>
         </div>
 
-        <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-          <span class="font-medium text-gray-900 dark:text-gray-100">{{ log.user || t('auditLogs.system') }}</span>
-          <span class="text-gray-500 dark:text-gray-500">•</span>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--el-text-color-regular);">
+          <span style="font-weight: 500;">{{ log.user || t('auditLogs.system') }}</span>
+          <span style="color: var(--el-text-color-secondary);">•</span>
           <span>{{ log.message }}</span>
         </div>
 
         <!-- Expanded Details -->
-        <div v-if="expandedLogs.has(log.id)" class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
-          <div v-if="log.target" class="flex gap-2 text-[13px]">
-            <span class="font-medium text-gray-600 dark:text-gray-400 min-w-[100px]">{{ t('auditLogs.target') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100 break-all">{{ log.target }}</span>
-          </div>
-          <div v-if="log.ipAddress" class="flex gap-2 text-[13px]">
-            <span class="font-medium text-gray-600 dark:text-gray-400 min-w-[100px]">{{ t('auditLogs.ipAddress') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100 break-all">{{ log.ipAddress }}</span>
-          </div>
-          <div v-if="log.userAgent" class="flex gap-2 text-[13px]">
-            <span class="font-medium text-gray-600 dark:text-gray-400 min-w-[100px]">{{ t('auditLogs.userAgent') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100 break-all">{{ log.userAgent }}</span>
-          </div>
-          <div v-if="log.changes" class="flex gap-2 text-[13px]">
-            <span class="font-medium text-gray-600 dark:text-gray-400 min-w-[100px]">{{ t('auditLogs.changes') }}:</span>
-            <pre class="flex-1 p-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 overflow-x-auto">{{ JSON.stringify(log.changes, null, 2) }}</pre>
-          </div>
-          <div v-if="log.metadata" class="flex gap-2 text-[13px]">
-            <span class="font-medium text-gray-600 dark:text-gray-400 min-w-[100px]">{{ t('auditLogs.metadata') }}:</span>
-            <pre class="flex-1 p-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 overflow-x-auto">{{ JSON.stringify(log.metadata, null, 2) }}</pre>
-          </div>
+        <div v-if="expandedLogs.has(log.id)" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--el-border-color);">
+          <el-descriptions :column="1" size="small" border>
+            <el-descriptions-item v-if="log.target" :label="t('auditLogs.target')">
+              {{ log.target }}
+            </el-descriptions-item>
+            <el-descriptions-item v-if="log.ipAddress" :label="t('auditLogs.ipAddress')">
+              {{ log.ipAddress }}
+            </el-descriptions-item>
+            <el-descriptions-item v-if="log.userAgent" :label="t('auditLogs.userAgent')">
+              {{ log.userAgent }}
+            </el-descriptions-item>
+            <el-descriptions-item v-if="log.changes" :label="t('auditLogs.changes')">
+              <pre style="margin: 0; padding: 8px; background: var(--el-fill-color-light); border-radius: 4px; font-size: 12px; overflow-x: auto;">{{ JSON.stringify(log.changes, null, 2) }}</pre>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="log.metadata" :label="t('auditLogs.metadata')">
+              <pre style="margin: 0; padding: 8px; background: var(--el-fill-color-light); border-radius: 4px; font-size: 12px; overflow-x: auto;">{{ JSON.stringify(log.metadata, null, 2) }}</pre>
+            </el-descriptions-item>
+          </el-descriptions>
         </div>
-      </div>
+      </el-card>
     </div>
 
     <!-- Empty State -->
-    <div v-else class="text-center py-15">
-      <div class="text-5xl mb-4">📋</div>
-      <p class="text-gray-600 dark:text-gray-400">{{ t('auditLogs.noLogs') }}</p>
-    </div>
+    <el-empty v-else :description="t('auditLogs.noLogs')" />
 
     <!-- Pagination -->
-    <div v-if="filteredLogs.length > pageSize" class="flex justify-center items-center gap-4 p-4">
-      <button
-        @click="currentPage--"
-        class="btn-secondary btn-sm"
-        :disabled="currentPage === 1"
-      >
-        {{ t('auditLogs.previous') }}
-      </button>
-      <span class="text-sm text-gray-600 dark:text-gray-400">
-        {{ t('auditLogs.pageInfo', { current: currentPage, total: totalPages }) }}
-      </span>
-      <button
-        @click="currentPage++"
-        class="btn-secondary btn-sm"
-        :disabled="currentPage === totalPages"
-      >
-        {{ t('auditLogs.next') }}
-      </button>
-    </div>
-  </div>
+    <el-pagination
+      v-if="filteredLogs.length > pageSize"
+      v-model:current-page="currentPage"
+      :page-size="pageSize"
+      :total="filteredLogs.length"
+      layout="prev, pager, next"
+      style="justify-content: center;"
+    />
+  </el-card>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
-import SkeletonLoader from './SkeletonLoader.vue'
+import { Download, Delete, Search } from '@element-plus/icons-vue'
 
 const props = defineProps(['password'])
 const toast = inject('toast')
@@ -217,10 +205,17 @@ const filteredLogs = computed(() => {
         break
     }
 
-    filtered = filtered.filter(log => new Date(log.timestamp) >= cutoff)
+    filtered = filtered.filter(log => {
+      const logDate = typeof log.timestamp === 'number' ? new Date(log.timestamp * 1000) : new Date(log.timestamp)
+      return logDate >= cutoff
+    })
   }
 
-  return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+  return filtered.sort((a, b) => {
+    const dateA = typeof a.timestamp === 'number' ? a.timestamp : new Date(a.timestamp).getTime() / 1000
+    const dateB = typeof b.timestamp === 'number' ? b.timestamp : new Date(b.timestamp).getTime() / 1000
+    return dateB - dateA
+  })
 })
 
 const paginatedLogs = computed(() => {
@@ -229,21 +224,22 @@ const paginatedLogs = computed(() => {
   return filteredLogs.value.slice(start, end)
 })
 
-const totalPages = computed(() => {
-  return Math.ceil(filteredLogs.value.length / pageSize)
-})
-
 const todayLogsCount = computed(() => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  return logs.value.filter(log => new Date(log.timestamp) >= today).length
+  return logs.value.filter(log => {
+    const logDate = typeof log.timestamp === 'number' ? new Date(log.timestamp * 1000) : new Date(log.timestamp)
+    return logDate >= today
+  }).length
 })
 
 const lastActionTime = computed(() => {
   if (logs.value.length === 0) return t('accounts.never')
-  const latest = logs.value.reduce((a, b) =>
-    new Date(a.timestamp) > new Date(b.timestamp) ? a : b
-  )
+  const latest = logs.value.reduce((a, b) => {
+    const dateA = typeof a.timestamp === 'number' ? a.timestamp : new Date(a.timestamp).getTime() / 1000
+    const dateB = typeof b.timestamp === 'number' ? b.timestamp : new Date(b.timestamp).getTime() / 1000
+    return dateA > dateB ? a : b
+  })
   return formatRelativeTime(latest.timestamp)
 })
 
@@ -340,8 +336,6 @@ function getActionIcon(action) {
 }
 
 function getActionLabel(action) {
-  // Convert 'account.create' to 'accountCreate'
-  const key = action.replace(/\./g, '').replace(/([a-z])([A-Z])/g, '$1$2')
   const parts = action.split('.')
   const camelCase = parts[0] + parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('')
   return t(`auditLogs.${camelCase}`) || action
@@ -349,14 +343,14 @@ function getActionLabel(action) {
 
 function formatDateTime(timestamp) {
   if (!timestamp) return ''
-  const date = new Date(timestamp)
+  const date = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp)
   return date.toLocaleString()
 }
 
 function formatRelativeTime(timestamp) {
   if (!timestamp) return ''
   const now = new Date()
-  const date = new Date(timestamp)
+  const date = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp)
   const diff = now - date
   const seconds = Math.floor(diff / 1000)
   const minutes = Math.floor(seconds / 60)
@@ -369,26 +363,3 @@ function formatRelativeTime(timestamp) {
   return `${seconds}s ago`
 }
 </script>
-
-<style scoped>
-.log-card {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  transition: all 0.2s;
-  border-left-width: 4px;
-}
-
-.log-card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.log-level {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-</style>

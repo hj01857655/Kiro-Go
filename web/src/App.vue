@@ -1,114 +1,103 @@
 <template>
-  <div :class="[theme, 'min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300']">
+  <div id="app">
     <!-- Login Page -->
-    <div v-if="!authenticated" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-900 p-4 transition-all duration-300">
-      <div class="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg w-full max-w-sm relative transition-all duration-300">
-        <h1 class="text-center text-primary text-2xl mb-2">🚀 {{ t('login.title') }}</h1>
-        <p class="text-center text-gray-600 dark:text-gray-400 mb-6 text-sm">{{ t('login.subtitle') }}</p>
+    <div v-if="!authenticated" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;">
+      <el-card style="width: 100%; max-width: 400px;">
+        <template #header>
+          <div style="text-align: center;">
+            <h1 style="margin: 0 0 8px 0; font-size: 24px; color: var(--el-color-primary);">🚀 {{ t('login.title') }}</h1>
+            <p style="margin: 0; font-size: 14px; color: var(--el-text-color-secondary);">{{ t('login.subtitle') }}</p>
+          </div>
+        </template>
 
-        <form @submit.prevent="login" class="space-y-4">
-          <div>
-            <label class="block mb-2 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('login.password') }}</label>
-            <input
+        <el-form @submit.prevent="login">
+          <el-form-item :label="t('login.password')">
+            <el-input
               v-model="password"
               type="password"
               :placeholder="t('login.passwordPlaceholder')"
-              class="input"
+              show-password
               autofocus
-            >
-          </div>
-          <button type="submit" class="btn-primary w-full">{{ t('login.loginButton') }}</button>
-          <p v-if="loginError" class="text-error text-sm text-center mt-2">{{ loginError }}</p>
-        </form>
+              @keyup.enter="login"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" style="width: 100%;" @click="login">
+              {{ t('login.loginButton') }}
+            </el-button>
+          </el-form-item>
+          <el-alert v-if="loginError" type="error" :closable="false" :title="loginError" />
+        </el-form>
 
-        <!-- Theme & Language Toggle -->
-        <div class="flex gap-2 justify-center mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <button @click="toggleTheme" class="px-4 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-lg" :title="t('theme.toggle')">
-            {{ theme === 'light' ? '🌙' : '☀️' }}
-          </button>
-          <button @click="toggleLanguage" class="px-4 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-lg" :title="t('language.toggle')">
-            {{ locale === 'en' ? '🇨🇳' : '🇺🇸' }}
-          </button>
-        </div>
-      </div>
+        <template #footer>
+          <div style="display: flex; gap: 8px; justify-content: center;">
+            <el-button @click="toggleTheme" :title="t('theme.toggle')">
+              {{ theme === 'light' ? '🌙' : '☀️' }}
+            </el-button>
+            <el-button @click="toggleLanguage" :title="t('language.toggle')">
+              {{ locale === 'en' ? '🇨🇳' : '🇺🇸' }}
+            </el-button>
+          </div>
+        </template>
+      </el-card>
     </div>
 
     <!-- Main App -->
-    <div v-else class="max-w-7xl mx-auto p-4">
+    <div v-else style="max-width: 1400px; margin: 0 auto; padding: 16px;">
       <!-- Header -->
-      <header class="flex justify-between items-center mb-5">
-        <h1 class="text-2xl font-semibold text-primary">Kiro-Go Admin</h1>
-        <div class="flex gap-2 items-center">
-          <button @click="toggleTheme" class="btn-secondary btn-sm" :title="t('theme.toggle')">
-            {{ theme === 'light' ? '🌙' : '☀️' }}
-          </button>
-          <button @click="toggleLanguage" class="btn-secondary btn-sm" :title="t('language.toggle')">
-            {{ locale === 'en' ? '中文' : 'EN' }}
-          </button>
-          <button @click="logout" class="btn-secondary btn-sm">{{ t('login.logout') }}</button>
-        </div>
-      </header>
+      <el-page-header style="margin-bottom: 20px;">
+        <template #content>
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: var(--el-color-primary);">
+            Kiro-Go Admin
+          </h1>
+        </template>
+        <template #extra>
+          <el-button-group>
+            <el-button size="small" @click="toggleTheme" :title="t('theme.toggle')">
+              {{ theme === 'light' ? '🌙' : '☀️' }}
+            </el-button>
+            <el-button size="small" @click="toggleLanguage" :title="t('language.toggle')">
+              {{ locale === 'en' ? '中文' : 'EN' }}
+            </el-button>
+            <el-button size="small" @click="logout">{{ t('login.logout') }}</el-button>
+          </el-button-group>
+        </template>
+      </el-page-header>
 
       <!-- Tabs -->
-      <div class="flex gap-1 mb-4 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
-        <div
-          v-for="tab in tabs"
-          :key="tab.id"
-          :class="[
-            'px-4 py-2.5 rounded-lg cursor-pointer font-medium text-sm transition-all',
-            currentTab === tab.id
-              ? 'bg-white dark:bg-gray-700 text-primary shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-          ]"
-          @click="currentTab = tab.id"
-        >
-          {{ t(`nav.${tab.id}`) }}
-        </div>
-      </div>
-
-      <!-- Tab Content -->
-      <div v-show="currentTab === 'accounts'">
-        <AccountsPanel :password="password" />
-      </div>
-
-      <div v-show="currentTab === 'apikeys'">
-        <ApiKeysPanel :password="password" />
-      </div>
-
-      <div v-show="currentTab === 'auditlogs'">
-        <AuditLogsPanel :password="password" />
-      </div>
-
-      <div v-show="currentTab === 'settings'">
-        <SettingsPanel :password="password" />
-      </div>
-
-      <div v-show="currentTab === 'stats'">
-        <StatsPanel :password="password" />
-      </div>
+      <el-tabs v-model="currentTab" type="card">
+        <el-tab-pane :label="t('nav.accounts')" name="accounts">
+          <AccountsPanel :password="password" />
+        </el-tab-pane>
+        <el-tab-pane :label="t('nav.apikeys')" name="apikeys">
+          <ApiKeysPanel :password="password" />
+        </el-tab-pane>
+        <el-tab-pane :label="t('nav.auditlogs')" name="auditlogs">
+          <AuditLogsPanel :password="password" />
+        </el-tab-pane>
+        <el-tab-pane :label="t('nav.settings')" name="settings">
+          <SettingsPanel :password="password" />
+        </el-tab-pane>
+        <el-tab-pane :label="t('nav.stats')" name="stats">
+          <StatsPanel :password="password" />
+        </el-tab-pane>
+      </el-tabs>
     </div>
-
-    <!-- Global Components -->
-    <Toast ref="toastRef" />
-    <ConfirmDialog ref="confirmDialogRef" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, provide, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AccountsPanel from './components/AccountsPanel.vue'
 import ApiKeysPanel from './components/ApiKeysPanel.vue'
 import AuditLogsPanel from './components/AuditLogsPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import StatsPanel from './components/StatsPanel.vue'
-import Toast from './components/Toast.vue'
-import ConfirmDialog from './components/ConfirmDialog.vue'
 import { createI18n } from './i18n.js'
 
 const authenticated = ref(false)
 const password = ref('')
-const toastRef = ref(null)
-const confirmDialogRef = ref(null)
 const loginError = ref('')
 const currentTab = ref('accounts')
 
@@ -118,30 +107,37 @@ const locale = ref('en')
 const i18n = createI18n(locale.value)
 const { t } = i18n
 
-// Provide toast to all child components
+// Provide toast using Element Plus ElMessage
 provide('toast', {
-  success: (message, title) => toastRef.value?.success(message, title),
-  error: (message, title) => toastRef.value?.error(message, title),
-  warning: (message, title) => toastRef.value?.warning(message, title),
-  info: (message, title) => toastRef.value?.info(message, title)
+  success: (message, title) => ElMessage.success({ message, duration: 3000 }),
+  error: (message, title) => ElMessage.error({ message, duration: 5000 }),
+  warning: (message, title) => ElMessage.warning({ message, duration: 3000 }),
+  info: (message, title) => ElMessage.info({ message, duration: 3000 })
 })
 
-// Provide confirm dialog to all child components
-provide('confirm', (options) => confirmDialogRef.value?.show(options))
+// Provide confirm dialog using Element Plus ElMessageBox
+provide('confirm', async (options) => {
+  try {
+    await ElMessageBox.confirm(
+      options.message,
+      options.title,
+      {
+        confirmButtonText: options.confirmText || t('common.confirm'),
+        cancelButtonText: options.cancelText || t('common.cancel'),
+        type: options.type === 'danger' ? 'error' : options.type || 'warning'
+      }
+    )
+    return true
+  } catch {
+    return false
+  }
+})
 
 // Provide i18n to all child components
 provide('i18n', { t, locale })
 
 // Provide theme to all child components
 provide('theme', theme)
-
-const tabs = [
-  { id: 'accounts' },
-  { id: 'apikeys' },
-  { id: 'auditlogs' },
-  { id: 'settings' },
-  { id: 'stats' }
-]
 
 // Watch locale changes and update i18n
 watch(locale, (newLocale) => {

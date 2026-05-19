@@ -1,148 +1,177 @@
 <template>
-  <div class="flex flex-col gap-5">
-    <!-- 基础设置 -->
-    <div class="card">
-      <h3 class="text-base font-semibold mb-4 text-gray-900 dark:text-gray-100">{{ t('settings.basicSettings') }}</h3>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.serverPort') }}</label>
-        <input v-model.number="settings.port" type="number" placeholder="8080" class="input">
-      </div>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.serverHost') }}</label>
-        <input v-model="settings.host" type="text" placeholder="127.0.0.1" class="input">
-      </div>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.adminPassword') }}</label>
-        <input v-model="settings.password" type="password" :placeholder="t('settings.adminPasswordPlaceholder')" class="input">
-      </div>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.apiKey') }}</label>
-        <input v-model="settings.apiKey" type="text" :placeholder="t('settings.apiKeyPlaceholder')" class="input">
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.apiKeyHelp') }}</small>
-      </div>
-      <div class="mb-0">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input v-model="settings.apiKeyRequired" type="checkbox" class="w-auto cursor-pointer">
-          <span class="text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.requireApiKey') }}</span>
-        </label>
-      </div>
-    </div>
+  <div style="display: flex; flex-direction: column; gap: 20px;">
+    <!-- Basic Settings -->
+    <el-card>
+      <template #header>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 600;">{{ t('settings.basicSettings') }}</h3>
+      </template>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.serverPort')">
+          <el-input-number v-model="settings.port" :min="1" :max="65535" style="width: 100%;" />
+        </el-form-item>
+        <el-form-item :label="t('settings.serverHost')">
+          <el-input v-model="settings.host" placeholder="127.0.0.1" />
+        </el-form-item>
+        <el-form-item :label="t('settings.adminPassword')">
+          <el-input v-model="settings.password" type="password" :placeholder="t('settings.adminPasswordPlaceholder')" show-password />
+        </el-form-item>
+        <el-form-item :label="t('settings.apiKey')">
+          <el-input v-model="settings.apiKey" :placeholder="t('settings.apiKeyPlaceholder')" />
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.apiKeyHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="settings.apiKeyRequired">{{ t('settings.requireApiKey') }}</el-checkbox>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-    <!-- Proxy 设置 -->
-    <div class="card">
-      <h3 class="text-base font-semibold mb-4 text-gray-900 dark:text-gray-100">{{ t('settings.proxySettings') }}</h3>
-      <div class="mb-0">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.globalProxyURL') }}</label>
-        <input v-model="settings.proxyURL" type="text" :placeholder="t('settings.proxyURLPlaceholder')" class="input">
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.proxyURLHelp') }}</small>
-      </div>
-    </div>
+    <!-- Proxy Settings -->
+    <el-card>
+      <template #header>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 600;">{{ t('settings.proxySettings') }}</h3>
+      </template>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.globalProxyURL')">
+          <el-input v-model="settings.proxyURL" :placeholder="t('settings.proxyURLPlaceholder')" />
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.proxyURLHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-    <!-- Thinking 配置 -->
-    <div class="card">
-      <h3 class="text-base font-semibold mb-4 text-gray-900 dark:text-gray-100">{{ t('settings.thinkingConfiguration') }}</h3>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.thinkingSuffix') }}</label>
-        <input v-model="thinking.suffix" type="text" :placeholder="t('settings.thinkingSuffixPlaceholder')" class="input">
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.thinkingSuffixHelp') }}</small>
-      </div>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.openaiFormat') }}</label>
-        <select v-model="thinking.openaiFormat" class="input">
-          <option value="">{{ t('settings.formatNone') }}</option>
-          <option value="reasoning_content">reasoning_content</option>
-          <option value="thinking">thinking</option>
-          <option value="think">think</option>
-        </select>
-      </div>
-      <div class="mb-0">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.claudeFormat') }}</label>
-        <select v-model="thinking.claudeFormat" class="input">
-          <option value="">{{ t('settings.formatNone') }}</option>
-          <option value="reasoning_content">reasoning_content</option>
-          <option value="thinking">thinking</option>
-          <option value="think">think</option>
-        </select>
-      </div>
-    </div>
+    <!-- Thinking Configuration -->
+    <el-card>
+      <template #header>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 600;">{{ t('settings.thinkingConfiguration') }}</h3>
+      </template>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.thinkingSuffix')">
+          <el-input v-model="thinking.suffix" :placeholder="t('settings.thinkingSuffixPlaceholder')" />
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.thinkingSuffixHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+        <el-form-item :label="t('settings.openaiFormat')">
+          <el-select v-model="thinking.openaiFormat" style="width: 100%;">
+            <el-option value="" :label="t('settings.formatNone')" />
+            <el-option value="reasoning_content" label="reasoning_content" />
+            <el-option value="thinking" label="thinking" />
+            <el-option value="think" label="think" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('settings.claudeFormat')">
+          <el-select v-model="thinking.claudeFormat" style="width: 100%;">
+            <el-option value="" :label="t('settings.formatNone')" />
+            <el-option value="reasoning_content" label="reasoning_content" />
+            <el-option value="thinking" label="thinking" />
+            <el-option value="think" label="think" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-    <!-- Endpoint 配置 -->
-    <div class="card">
-      <h3 class="text-base font-semibold mb-4 text-gray-900 dark:text-gray-100">{{ t('settings.endpointSettings') }}</h3>
-      <div class="mb-4">
-        <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.preferredEndpoint') }}</label>
-        <select v-model="endpoint.preferred" class="input">
-          <option value="">{{ t('settings.endpointAuto') }}</option>
-          <option value="kiro">{{ t('settings.endpointKiro') }}</option>
-          <option value="codewhisperer">{{ t('settings.endpointCodewhisperer') }}</option>
-          <option value="amazonq">{{ t('settings.endpointAmazonq') }}</option>
-        </select>
-      </div>
-      <div class="mb-0">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input v-model="endpoint.enableFallback" type="checkbox" class="w-auto cursor-pointer">
-          <span class="text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.enableFallback') }}</span>
-        </label>
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.enableFallbackHelp') }}</small>
-      </div>
-    </div>
+    <!-- Endpoint Settings -->
+    <el-card>
+      <template #header>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 600;">{{ t('settings.endpointSettings') }}</h3>
+      </template>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.preferredEndpoint')">
+          <el-select v-model="endpoint.preferred" style="width: 100%;">
+            <el-option value="" :label="t('settings.endpointAuto')" />
+            <el-option value="kiro" :label="t('settings.endpointKiro')" />
+            <el-option value="codewhisperer" :label="t('settings.endpointCodewhisperer')" />
+            <el-option value="amazonq" :label="t('settings.endpointAmazonq')" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="endpoint.enableFallback">{{ t('settings.enableFallback') }}</el-checkbox>
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.enableFallbackHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-    <!-- Prompt 过滤 -->
-    <div class="card">
-      <h3 class="text-base font-semibold mb-4 text-gray-900 dark:text-gray-100">{{ t('settings.promptFiltering') }}</h3>
-      <div class="mb-4">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input v-model="promptFilter.filterClaudeCode" type="checkbox" class="w-auto cursor-pointer">
-          <span class="text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.filterClaudeCode') }}</span>
-        </label>
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.filterClaudeCodeHelp') }}</small>
-      </div>
-      <div class="mb-4">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input v-model="promptFilter.filterEnvNoise" type="checkbox" class="w-auto cursor-pointer">
-          <span class="text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.filterEnvNoise') }}</span>
-        </label>
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.filterEnvNoiseHelp') }}</small>
-      </div>
-      <div class="mb-0">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input v-model="promptFilter.filterStripBoundaries" type="checkbox" class="w-auto cursor-pointer">
-          <span class="text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.filterStripBoundaries') }}</span>
-        </label>
-        <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('settings.filterStripBoundariesHelp') }}</small>
-      </div>
-    </div>
+    <!-- Prompt Filtering -->
+    <el-card>
+      <template #header>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 600;">{{ t('settings.promptFiltering') }}</h3>
+      </template>
+      <el-form label-position="top">
+        <el-form-item>
+          <el-checkbox v-model="promptFilter.filterClaudeCode">{{ t('settings.filterClaudeCode') }}</el-checkbox>
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.filterClaudeCodeHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="promptFilter.filterEnvNoise">{{ t('settings.filterEnvNoise') }}</el-checkbox>
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.filterEnvNoiseHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="promptFilter.filterStripBoundaries">{{ t('settings.filterStripBoundaries') }}</el-checkbox>
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('settings.filterStripBoundariesHelp') }}
+            </span>
+          </template>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-    <!-- 自定义过滤规则 -->
-    <div class="card">
-      <h3 class="text-base font-semibold mb-4 text-gray-900 dark:text-gray-100">{{ t('settings.customFilterRules') }}</h3>
-      <div v-for="(rule, idx) in promptFilter.rules" :key="idx" class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 mb-3">
-        <div class="mb-4">
-          <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.ruleType') }}</label>
-          <select v-model="rule.type" class="input">
-            <option value="regex">{{ t('settings.ruleTypeRegex') }}</option>
-            <option value="lines-containing">{{ t('settings.ruleTypeLinesContaining') }}</option>
-          </select>
-        </div>
-        <div class="mb-4">
-          <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.matchPattern') }}</label>
-          <input v-model="rule.match" type="text" :placeholder="t('settings.matchPatternPlaceholder')" class="input">
-        </div>
-        <div v-if="rule.type === 'regex'" class="mb-4">
-          <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('settings.replaceWith') }}</label>
-          <input v-model="rule.replace" type="text" :placeholder="t('settings.replaceWithPlaceholder')" class="input">
-        </div>
-        <button @click="removeRule(idx)" class="btn-danger btn-sm">{{ t('settings.removeRule') }}</button>
+    <!-- Custom Filter Rules -->
+    <el-card>
+      <template #header>
+        <h3 style="margin: 0; font-size: 16px; font-weight: 600;">{{ t('settings.customFilterRules') }}</h3>
+      </template>
+      <div v-for="(rule, idx) in promptFilter.rules" :key="idx" style="margin-bottom: 16px;">
+        <el-card shadow="never">
+          <el-form label-position="top">
+            <el-form-item :label="t('settings.ruleType')">
+              <el-select v-model="rule.type" style="width: 100%;">
+                <el-option value="regex" :label="t('settings.ruleTypeRegex')" />
+                <el-option value="lines-containing" :label="t('settings.ruleTypeLinesContaining')" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('settings.matchPattern')">
+              <el-input v-model="rule.match" :placeholder="t('settings.matchPatternPlaceholder')" />
+            </el-form-item>
+            <el-form-item v-if="rule.type === 'regex'" :label="t('settings.replaceWith')">
+              <el-input v-model="rule.replace" :placeholder="t('settings.replaceWithPlaceholder')" />
+            </el-form-item>
+            <el-button type="danger" size="small" @click="removeRule(idx)">
+              {{ t('settings.removeRule') }}
+            </el-button>
+          </el-form>
+        </el-card>
       </div>
-      <button @click="addRule" class="btn-secondary btn-sm">{{ t('settings.addRule') }}</button>
-    </div>
+      <el-button size="small" @click="addRule">{{ t('settings.addRule') }}</el-button>
+    </el-card>
 
-    <!-- 保存按钮 -->
-    <div class="flex gap-3 justify-end">
-      <button @click="saveSettings" class="btn-primary" :disabled="saving">
-        {{ saving ? t('settings.saving') : t('settings.saveSettings') }}
-      </button>
-      <button @click="loadSettings" class="btn-secondary">{{ t('settings.reset') }}</button>
+    <!-- Save Buttons -->
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <el-button @click="loadSettings">{{ t('settings.reset') }}</el-button>
+      <el-button type="primary" :loading="saving" @click="saveSettings">
+        {{ t('settings.saveSettings') }}
+      </el-button>
     </div>
   </div>
 </template>
@@ -188,7 +217,6 @@ onMounted(() => {
 
 async function loadSettings() {
   try {
-    // 加载基础设置
     const settingsRes = await fetch('/admin/api/settings', {
       headers: { 'X-Admin-Password': props.password }
     })
@@ -204,7 +232,6 @@ async function loadSettings() {
       }
     }
 
-    // 加载 thinking 配置
     const thinkingRes = await fetch('/admin/api/thinking', {
       headers: { 'X-Admin-Password': props.password }
     })
@@ -212,7 +239,6 @@ async function loadSettings() {
       thinking.value = await thinkingRes.json()
     }
 
-    // 加载 endpoint 配置
     const endpointRes = await fetch('/admin/api/endpoint', {
       headers: { 'X-Admin-Password': props.password }
     })
@@ -220,7 +246,6 @@ async function loadSettings() {
       endpoint.value = await endpointRes.json()
     }
 
-    // 加载 prompt filter 配置
     const filterRes = await fetch('/admin/api/prompt-filter', {
       headers: { 'X-Admin-Password': props.password }
     })
@@ -235,7 +260,6 @@ async function loadSettings() {
 async function saveSettings() {
   saving.value = true
   try {
-    // 保存基础设置
     await fetch('/admin/api/settings', {
       method: 'POST',
       headers: {
@@ -245,7 +269,6 @@ async function saveSettings() {
       body: JSON.stringify(settings.value)
     })
 
-    // 保存 thinking 配置
     await fetch('/admin/api/thinking', {
       method: 'POST',
       headers: {
@@ -255,7 +278,6 @@ async function saveSettings() {
       body: JSON.stringify(thinking.value)
     })
 
-    // 保存 endpoint 配置
     await fetch('/admin/api/endpoint', {
       method: 'POST',
       headers: {
@@ -265,7 +287,6 @@ async function saveSettings() {
       body: JSON.stringify(endpoint.value)
     })
 
-    // 保存 prompt filter 配置
     await fetch('/admin/api/prompt-filter', {
       method: 'POST',
       headers: {
@@ -295,4 +316,3 @@ function removeRule(idx) {
   promptFilter.value.rules.splice(idx, 1)
 }
 </script>
-

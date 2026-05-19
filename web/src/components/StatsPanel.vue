@@ -1,147 +1,189 @@
 <template>
-  <div class="card">
-    <div class="flex justify-between items-center mb-5 pb-3 border-b border-gray-200 dark:border-gray-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('stats.title') }}</h2>
-      <button @click="resetStats" class="btn-danger btn-sm">{{ t('stats.resetStats') }}</button>
+  <el-card>
+    <template #header>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 600;">{{ t('stats.title') }}</h2>
+        <el-button type="danger" size="small" @click="resetStats">
+          {{ t('stats.resetStats') }}
+        </el-button>
+      </div>
+    </template>
+
+    <!-- Loading -->
+    <div v-if="loading">
+      <el-skeleton :rows="6" animated style="margin-bottom: 24px;" />
+      <el-skeleton :rows="6" animated style="margin-bottom: 24px;" />
+      <el-skeleton :rows="6" animated />
     </div>
 
-    <!-- Skeleton Loading -->
-    <div v-if="loading" class="flex flex-col gap-6">
-      <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-          <SkeletonLoader v-for="i in 3" :key="i" type="stats-card" />
-        </div>
-      </div>
-      <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-          <SkeletonLoader v-for="i in 4" :key="i" type="stats-card" />
-        </div>
-      </div>
-      <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-          <SkeletonLoader v-for="i in 3" :key="i" type="stats-card" />
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="stats" class="flex flex-col gap-6">
+    <div v-else-if="stats" style="display: flex; flex-direction: column; gap: 24px;">
       <!-- Account Stats -->
-      <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
-        <h3 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">{{ t('stats.accountsSection') }}</h3>
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-primary mb-1">{{ stats.accounts || 0 }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.totalAccounts') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-success mb-1">{{ stats.available || 0 }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.available') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-warning mb-1">{{ (stats.accounts || 0) - (stats.available || 0) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.unavailable') }}</div>
-          </div>
-        </div>
-      </div>
+      <el-card shadow="never">
+        <template #header>
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600; text-transform: uppercase; color: var(--el-text-color-secondary);">
+            {{ t('stats.accountsSection') }}
+          </h3>
+        </template>
+        <el-row :gutter="16">
+          <el-col :xs="8" :sm="8">
+            <el-statistic :value="stats.accounts || 0" :title="t('stats.totalAccounts')">
+              <template #prefix>
+                <el-icon color="#409EFF"><Document /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="8" :sm="8">
+            <el-statistic :value="stats.available || 0" :title="t('stats.available')">
+              <template #prefix>
+                <el-icon color="#67C23A"><CircleCheck /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="8" :sm="8">
+            <el-statistic :value="(stats.accounts || 0) - (stats.available || 0)" :title="t('stats.unavailable')">
+              <template #prefix>
+                <el-icon color="#E6A23C"><WarningFilled /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+        </el-row>
+      </el-card>
 
       <!-- Request Stats -->
-      <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
-        <h3 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">{{ t('stats.requestsSection') }}</h3>
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-primary mb-1">{{ formatNumber(stats.totalRequests) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.totalRequests') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-success mb-1">{{ formatNumber(stats.successRequests) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.successful') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-error mb-1">{{ formatNumber(stats.failedRequests) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.failed') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold mb-1" :class="getSuccessRateClass(successRate)">{{ successRate }}%</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.successRate') }}</div>
-          </div>
-        </div>
-      </div>
+      <el-card shadow="never">
+        <template #header>
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600; text-transform: uppercase; color: var(--el-text-color-secondary);">
+            {{ t('stats.requestsSection') }}
+          </h3>
+        </template>
+        <el-row :gutter="16">
+          <el-col :xs="12" :sm="6">
+            <el-statistic :value="formatNumber(stats.totalRequests)" :title="t('stats.totalRequests')">
+              <template #prefix>
+                <el-icon color="#409EFF"><DataLine /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="12" :sm="6">
+            <el-statistic :value="formatNumber(stats.successRequests)" :title="t('stats.successful')">
+              <template #prefix>
+                <el-icon color="#67C23A"><Select /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="12" :sm="6">
+            <el-statistic :value="formatNumber(stats.failedRequests)" :title="t('stats.failed')">
+              <template #prefix>
+                <el-icon color="#F56C6C"><CircleClose /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="12" :sm="6">
+            <el-statistic :value="successRate + '%'" :title="t('stats.successRate')">
+              <template #prefix>
+                <el-icon :color="getSuccessRateColor(successRate)"><TrendCharts /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+        </el-row>
+      </el-card>
 
       <!-- Usage Stats -->
-      <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
-        <h3 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">{{ t('stats.usageSection') }}</h3>
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-primary mb-1">{{ formatNumber(stats.totalTokens) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.totalTokens') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-primary mb-1">{{ formatCredits(stats.totalCredits) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.totalCredits') }}</div>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-700 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm">
-            <div class="text-2xl font-bold text-primary mb-1">{{ formatUptime(stats.uptime) }}</div>
-            <div class="text-xs text-gray-600 dark:text-gray-400 font-medium">{{ t('stats.uptime') }}</div>
-          </div>
-        </div>
-      </div>
+      <el-card shadow="never">
+        <template #header>
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600; text-transform: uppercase; color: var(--el-text-color-secondary);">
+            {{ t('stats.usageSection') }}
+          </h3>
+        </template>
+        <el-row :gutter="16">
+          <el-col :xs="8" :sm="8">
+            <el-statistic :value="formatNumber(stats.totalTokens)" :title="t('stats.totalTokens')">
+              <template #prefix>
+                <el-icon color="#409EFF"><Coin /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="8" :sm="8">
+            <el-statistic :value="formatCredits(stats.totalCredits)" :title="t('stats.totalCredits')">
+              <template #prefix>
+                <el-icon color="#409EFF"><Money /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+          <el-col :xs="8" :sm="8">
+            <el-statistic :value="formatUptime(stats.uptime)" :title="t('stats.uptime')">
+              <template #prefix>
+                <el-icon color="#409EFF"><Timer /></el-icon>
+              </template>
+            </el-statistic>
+          </el-col>
+        </el-row>
+      </el-card>
 
-      <!-- Charts -->
-      <div class="grid grid-cols-[repeat(auto-fit,minmax(350px,1fr))] gap-5 mt-2">
-        <!-- Success Rate Trend -->
-        <ChartCard
-          v-if="successRateHistory.length > 0"
-          type="line"
-          :title="t('stats.successRateTrend')"
-          :subtitle="t('stats.last24Hours')"
-          :data="successRateHistory"
-          :labels="successRateLabels"
-          color="#10b981"
-          :show-area="true"
-        />
-
-        <!-- Account Type Distribution -->
-        <ChartCard
-          v-if="accountTypeData.length > 0"
-          type="donut"
-          :title="t('stats.accountDistribution')"
-          :subtitle="t('stats.bySubscriptionType')"
-          :data="accountTypeData"
-        />
-      </div>
+      <!-- Charts (if ChartCard component exists) -->
+      <el-row v-if="false" :gutter="20">
+        <el-col :xs="24" :sm="12">
+          <ChartCard
+            v-if="successRateHistory.length > 0"
+            type="line"
+            :title="t('stats.successRateTrend')"
+            :subtitle="t('stats.last24Hours')"
+            :data="successRateHistory"
+            :labels="successRateLabels"
+            color="#10b981"
+            :show-area="true"
+          />
+        </el-col>
+        <el-col :xs="24" :sm="12">
+          <ChartCard
+            v-if="accountTypeData.length > 0"
+            type="donut"
+            :title="t('stats.accountDistribution')"
+            :subtitle="t('stats.bySubscriptionType')"
+            :data="accountTypeData"
+          />
+        </el-col>
+      </el-row>
     </div>
-  </div>
+  </el-card>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
-import SkeletonLoader from './SkeletonLoader.vue'
-import ChartCard from './ChartCard.vue'
+import {
+  Document,
+  CircleCheck,
+  WarningFilled,
+  DataLine,
+  Select,
+  CircleClose,
+  TrendCharts,
+  Coin,
+  Money,
+  Timer
+} from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
 
 const props = defineProps(['password'])
 const toast = inject('toast')
-const confirm = inject('confirm')
 const { t } = inject('i18n')
 const stats = ref(null)
 const loading = ref(true)
 
-// Mock data for success rate history (last 24 hours)
+const successRate = computed(() => {
+  if (!stats.value || !stats.value.totalRequests) return 0
+  return ((stats.value.successRequests / stats.value.totalRequests) * 100).toFixed(1)
+})
+
 const successRateHistory = computed(() => {
   if (!stats.value) return []
-
-  // Generate 24 data points (hourly)
   const data = []
   const currentRate = parseFloat(successRate.value)
-
   for (let i = 23; i >= 0; i--) {
     const variance = (Math.random() - 0.5) * 10
     const rate = Math.max(0, Math.min(100, currentRate + variance))
-    data.push({
-      value: rate,
-      label: `${i}h ago`
-    })
+    data.push({ value: rate, label: `${i}h ago` })
   }
-
   return data.reverse()
 })
 
@@ -149,27 +191,19 @@ const successRateLabels = computed(() => {
   return ['24h', '18h', '12h', '6h', 'Now']
 })
 
-// Account type distribution data
 const accountTypeData = computed(() => {
   if (!stats.value || !stats.value.accountsByType) return []
-
   const colors = {
     'FREE': '#94a3b8',
     'PRO': '#3b82f6',
     'PRO_PLUS': '#7c3aed',
     'POWER': '#f59e0b'
   }
-
   return Object.entries(stats.value.accountsByType || {}).map(([type, count]) => ({
     label: type.replace('_', ' '),
     value: count,
     color: colors[type] || '#64748b'
   }))
-})
-
-const successRate = computed(() => {
-  if (!stats.value || !stats.value.totalRequests) return 0
-  return ((stats.value.successRequests / stats.value.totalRequests) * 100).toFixed(1)
 })
 
 onMounted(() => {
@@ -193,16 +227,17 @@ async function loadStats() {
 }
 
 async function resetStats() {
-  const confirmed = await confirm({
-    title: t('stats.resetConfirmTitle'),
-    message: t('stats.resetConfirmMessage'),
-    type: 'danger',
-    confirmText: t('common.confirm'),
-    cancelText: t('common.cancel')
-  })
-  if (!confirmed) return
-
   try {
+    await ElMessageBox.confirm(
+      t('stats.resetConfirmMessage'),
+      t('stats.resetConfirmTitle'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+
     const res = await fetch('/admin/api/stats/reset', {
       method: 'POST',
       headers: { 'X-Admin-Password': props.password }
@@ -214,18 +249,16 @@ async function resetStats() {
       toast.error(t('stats.failedToResetStats'))
     }
   } catch (e) {
-    toast.error(t('stats.failedToResetStats'))
+    if (e !== 'cancel') {
+      toast.error(t('stats.failedToResetStats'))
+    }
   }
 }
 
 function formatNumber(num) {
   if (!num) return '0'
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(2) + 'M'
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K'
-  }
+  if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M'
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
   return num.toLocaleString()
 }
 
@@ -239,17 +272,15 @@ function formatUptime(seconds) {
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
-
   if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   return `${minutes}m`
 }
 
-function getSuccessRateClass(rate) {
+function getSuccessRateColor(rate) {
   const r = parseFloat(rate)
-  if (r >= 95) return 'text-success'
-  if (r >= 80) return 'text-warning'
-  return 'text-error'
+  if (r >= 95) return '#67C23A'
+  if (r >= 80) return '#E6A23C'
+  return '#F56C6C'
 }
 </script>
-

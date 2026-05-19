@@ -1,197 +1,183 @@
 <template>
-  <div class="card">
-    <div class="flex justify-between items-center mb-5 pb-3 border-b border-gray-200 dark:border-gray-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('apiKeys.title') }}</h2>
-      <button @click="showCreateModal = true" class="btn-primary btn-sm">
-        + {{ t('apiKeys.createKey') }}
-      </button>
-    </div>
-
-    <div class="mb-5">
-      <p class="text-gray-600 dark:text-gray-400 mb-3">{{ t('apiKeys.description') }}</p>
-      <div class="flex items-center gap-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-sm text-gray-600 dark:text-gray-400">
-        <span class="text-lg">ℹ️</span>
-        <span>{{ t('apiKeys.securityNote') }}</span>
+  <el-card>
+    <template #header>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 600;">{{ t('apiKeys.title') }}</h2>
+        <el-button type="primary" size="small" @click="showCreateModal = true">
+          <el-icon><Plus /></el-icon>
+          {{ t('apiKeys.createKey') }}
+        </el-button>
       </div>
-    </div>
+    </template>
 
-    <!-- Skeleton Loading -->
-    <div v-if="loading" class="flex flex-col gap-3">
-      <SkeletonLoader v-for="i in 3" :key="i" type="table-row" />
+    <el-alert type="info" :closable="false" style="margin-bottom: 16px;">
+      <template #title>
+        <p style="margin: 0 0 8px 0;">{{ t('apiKeys.description') }}</p>
+      </template>
+      {{ t('apiKeys.securityNote') }}
+    </el-alert>
+
+    <!-- Loading -->
+    <div v-if="loading">
+      <el-skeleton :rows="4" animated style="margin-bottom: 16px;" />
+      <el-skeleton :rows="4" animated style="margin-bottom: 16px;" />
+      <el-skeleton :rows="4" animated />
     </div>
 
     <!-- API Keys List -->
-    <div v-else-if="apiKeys.length > 0" class="flex flex-col gap-3">
-      <div v-for="key in apiKeys" :key="key.id" class="key-card">
-        <div class="flex justify-between items-center mb-3">
-          <div class="flex-1">
-            <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">{{ key.name }}</h4>
-            <span class="text-xs text-gray-500 dark:text-gray-500 font-mono">{{ t('apiKeys.keyId') }}: {{ key.id }}</span>
-          </div>
-          <div class="flex gap-2">
-            <button @click="toggleKeyStatus(key)" class="btn-sm" :class="key.enabled ? 'btn-warning' : 'btn-success'">
-              {{ key.enabled ? t('common.disable') : t('common.enable') }}
-            </button>
-            <button @click="editKey(key)" class="btn-secondary btn-sm">{{ t('common.edit') }}</button>
-            <button @click="deleteKey(key.id)" class="btn-danger btn-sm">{{ t('common.delete') }}</button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-2 mb-3">
-          <div class="flex gap-2 text-sm">
-            <span class="font-medium text-gray-600 dark:text-gray-400">{{ t('apiKeys.status') }}:</span>
-            <span :class="key.enabled ? 'text-success' : 'text-error'">
-              {{ key.enabled ? t('apiKeys.active') : t('apiKeys.inactive') }}
+    <div v-else-if="apiKeys.length > 0" style="display: flex; flex-direction: column; gap: 16px;">
+      <el-card v-for="key in apiKeys" :key="key.id" shadow="hover">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="flex: 1;">
+            <h4 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">{{ key.name }}</h4>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary); font-family: monospace;">
+              {{ t('apiKeys.keyId') }}: {{ key.id }}
             </span>
           </div>
-          <div class="flex gap-2 text-sm">
-            <span class="font-medium text-gray-600 dark:text-gray-400">{{ t('apiKeys.createdAt') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100">{{ formatDate(key.createdAt) }}</span>
-          </div>
-          <div class="flex gap-2 text-sm">
-            <span class="font-medium text-gray-600 dark:text-gray-400">{{ t('apiKeys.lastUsed') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100">{{ key.lastUsed ? formatDate(key.lastUsed) : t('accounts.never') }}</span>
-          </div>
-          <div class="flex gap-2 text-sm">
-            <span class="font-medium text-gray-600 dark:text-gray-400">{{ t('apiKeys.usageCount') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100">{{ key.usageCount || 0 }}</span>
-          </div>
-          <div v-if="key.expiresAt" class="flex gap-2 text-sm">
-            <span class="font-medium text-gray-600 dark:text-gray-400">{{ t('apiKeys.expiresAt') }}:</span>
-            <span class="text-gray-900 dark:text-gray-100" :class="isExpired(key.expiresAt) ? 'text-error' : ''">
+          <el-button-group>
+            <el-button
+              size="small"
+              :type="key.enabled ? 'warning' : 'success'"
+              @click="toggleKeyStatus(key)"
+            >
+              {{ key.enabled ? t('common.disable') : t('common.enable') }}
+            </el-button>
+            <el-button size="small" @click="editKey(key)">{{ t('common.edit') }}</el-button>
+            <el-button size="small" type="danger" @click="deleteKey(key.id)">{{ t('common.delete') }}</el-button>
+          </el-button-group>
+        </div>
+
+        <el-descriptions :column="2" size="small" border>
+          <el-descriptions-item :label="t('apiKeys.status')">
+            <el-tag :type="key.enabled ? 'success' : 'danger'" size="small">
+              {{ key.enabled ? t('apiKeys.active') : t('apiKeys.inactive') }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('apiKeys.createdAt')">
+            {{ formatDate(key.createdAt) }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('apiKeys.lastUsed')">
+            {{ key.lastUsed ? formatDate(key.lastUsed) : t('accounts.never') }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('apiKeys.usageCount')">
+            {{ key.usageCount || 0 }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="key.expiresAt" :label="t('apiKeys.expiresAt')" :span="2">
+            <span :style="{ color: isExpired(key.expiresAt) ? 'var(--el-color-danger)' : '' }">
               {{ formatDate(key.expiresAt) }}
             </span>
-          </div>
-        </div>
+          </el-descriptions-item>
+        </el-descriptions>
 
-        <div v-if="key.permissions && key.permissions.length > 0" class="pt-3 border-t border-gray-200 dark:border-gray-700">
-          <span class="text-[13px] font-medium text-gray-600 dark:text-gray-400 block mb-2">{{ t('apiKeys.permissions') }}:</span>
-          <div class="flex flex-wrap gap-1.5">
-            <span v-for="perm in key.permissions" :key="perm" class="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-900 dark:text-gray-100 font-mono">
-              {{ perm }}
-            </span>
+        <div v-if="key.permissions && key.permissions.length > 0" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--el-border-color);">
+          <span style="font-size: 13px; font-weight: 500; color: var(--el-text-color-secondary); display: block; margin-bottom: 8px;">
+            {{ t('apiKeys.permissions') }}:
+          </span>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <el-tag v-for="perm in key.permissions" :key="perm" size="small">{{ perm }}</el-tag>
           </div>
         </div>
-      </div>
+      </el-card>
     </div>
 
     <!-- Empty State -->
-    <div v-else class="text-center py-15">
-      <div class="text-5xl mb-4">🔑</div>
-      <p class="text-gray-600 dark:text-gray-400 mb-5">{{ t('apiKeys.noKeys') }}</p>
-      <button @click="showCreateModal = true" class="btn-primary">
+    <el-empty v-else :description="t('apiKeys.noKeys')">
+      <el-button type="primary" @click="showCreateModal = true">
         {{ t('apiKeys.createFirstKey') }}
-      </button>
-    </div>
+      </el-button>
+    </el-empty>
 
     <!-- Create/Edit Modal -->
-    <div v-if="showCreateModal || showEditModal" class="modal" @click.self="closeModal">
-      <div class="modal-content">
-        <div class="flex justify-between items-center mb-5 pb-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ showCreateModal ? t('apiKeys.createKey') : t('apiKeys.editKey') }}</h3>
-          <button @click="closeModal" class="text-2xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 leading-none">&times;</button>
-        </div>
+    <el-dialog
+      :model-value="showCreateModal || showEditModal"
+      :title="showCreateModal ? t('apiKeys.createKey') : t('apiKeys.editKey')"
+      width="600px"
+      @close="closeModal"
+    >
+      <el-form label-position="top">
+        <el-form-item :label="t('apiKeys.keyName') + ' *'">
+          <el-input v-model="keyForm.name" :placeholder="t('apiKeys.keyNamePlaceholder')" />
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('apiKeys.keyNameHelp') }}
+            </span>
+          </template>
+        </el-form-item>
 
-        <div class="mb-5">
-          <div class="mb-4">
-            <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('apiKeys.keyName') }} *</label>
-            <input
-              v-model="keyForm.name"
-              type="text"
-              :placeholder="t('apiKeys.keyNamePlaceholder')"
-              required
-              class="input"
-            >
-            <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('apiKeys.keyNameHelp') }}</small>
-          </div>
+        <el-form-item :label="t('apiKeys.expiresAt')">
+          <el-select v-model="keyForm.expiresIn" style="width: 100%;">
+            <el-option value="" :label="t('apiKeys.neverExpires')" />
+            <el-option value="7" :label="t('apiKeys.expires7Days')" />
+            <el-option value="30" :label="t('apiKeys.expires30Days')" />
+            <el-option value="90" :label="t('apiKeys.expires90Days')" />
+            <el-option value="365" :label="t('apiKeys.expires1Year')" />
+          </el-select>
+        </el-form-item>
 
-          <div class="mb-4">
-            <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('apiKeys.expiresAt') }}</label>
-            <select v-model="keyForm.expiresIn" class="input">
-              <option value="">{{ t('apiKeys.neverExpires') }}</option>
-              <option value="7">{{ t('apiKeys.expires7Days') }}</option>
-              <option value="30">{{ t('apiKeys.expires30Days') }}</option>
-              <option value="90">{{ t('apiKeys.expires90Days') }}</option>
-              <option value="365">{{ t('apiKeys.expires1Year') }}</option>
-            </select>
-          </div>
+        <el-form-item :label="t('apiKeys.permissions')">
+          <el-checkbox-group v-model="keyForm.permissions">
+            <el-checkbox v-for="perm in availablePermissions" :key="perm.value" :value="perm.value">
+              {{ perm.label }}
+            </el-checkbox>
+          </el-checkbox-group>
+          <template #extra>
+            <span style="font-size: 12px; color: var(--el-text-color-secondary);">
+              {{ t('apiKeys.permissionsHelp') }}
+            </span>
+          </template>
+        </el-form-item>
 
-          <div class="mb-4">
-            <label class="block mb-1.5 text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('apiKeys.permissions') }}</label>
-            <div class="flex flex-col gap-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg">
-              <label v-for="perm in availablePermissions" :key="perm.value" class="flex items-center gap-2 cursor-pointer text-sm">
-                <input
-                  type="checkbox"
-                  :value="perm.value"
-                  v-model="keyForm.permissions"
-                  class="cursor-pointer"
-                >
-                <span class="text-gray-900 dark:text-gray-100">{{ perm.label }}</span>
-              </label>
-            </div>
-            <small class="block mt-1 text-xs text-gray-600 dark:text-gray-400">{{ t('apiKeys.permissionsHelp') }}</small>
-          </div>
+        <el-form-item>
+          <el-checkbox v-model="keyForm.enabled">{{ t('apiKeys.enableImmediately') }}</el-checkbox>
+        </el-form-item>
+      </el-form>
 
-          <div class="mb-0">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" v-model="keyForm.enabled" class="cursor-pointer">
-              <span class="text-gray-700 dark:text-gray-300 text-sm font-medium">{{ t('apiKeys.enableImmediately') }}</span>
-            </label>
-          </div>
-        </div>
+      <template #footer>
+        <el-button @click="closeModal">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!keyForm.name" @click="saveKey">
+          {{ t('common.save') }}
+        </el-button>
+      </template>
+    </el-dialog>
 
-        <div class="flex gap-3 justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
-          <button @click="closeModal" class="btn-secondary">{{ t('common.cancel') }}</button>
-          <button @click="saveKey" class="btn-primary" :disabled="saving || !keyForm.name">
-            {{ saving ? t('common.saving') : t('common.save') }}
-          </button>
-        </div>
+    <!-- Success Modal -->
+    <el-dialog
+      :model-value="showSuccessModal"
+      :title="t('apiKeys.keyCreated')"
+      width="600px"
+      @close="showSuccessModal = false"
+    >
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">✅</div>
+        <p style="color: var(--el-text-color-secondary);">{{ t('apiKeys.keyCreatedMessage') }}</p>
       </div>
-    </div>
 
-    <!-- Key Created Success Modal -->
-    <div v-if="showSuccessModal" class="modal" @click.self="showSuccessModal = false">
-      <div class="modal-content">
-        <div class="flex justify-between items-center mb-5 pb-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ t('apiKeys.keyCreated') }}</h3>
-          <button @click="showSuccessModal = false" class="text-2xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 leading-none">&times;</button>
-        </div>
+      <el-form-item :label="t('apiKeys.yourApiKey')">
+        <el-input :model-value="createdKey" readonly>
+          <template #append>
+            <el-button @click="copyKey">
+              {{ copied ? t('apiKeys.copied') : t('apiKeys.copy') }}
+            </el-button>
+          </template>
+        </el-input>
+      </el-form-item>
 
-        <div class="mb-5">
-          <div class="text-center mb-5">
-            <div class="text-5xl mb-3">✅</div>
-            <p class="text-gray-600 dark:text-gray-400">{{ t('apiKeys.keyCreatedMessage') }}</p>
-          </div>
+      <el-alert type="warning" :closable="false" style="margin-top: 16px;">
+        {{ t('apiKeys.copyWarning') }}
+      </el-alert>
 
-          <div class="mb-5">
-            <label class="block mb-2 font-medium text-gray-900 dark:text-gray-100">{{ t('apiKeys.yourApiKey') }}</label>
-            <div class="flex gap-2 items-center">
-              <code class="flex-1 p-3 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg font-mono text-[13px] break-all text-gray-900 dark:text-gray-100">{{ createdKey }}</code>
-              <button @click="copyKey" class="btn-secondary btn-sm">
-                {{ copied ? t('apiKeys.copied') : t('apiKeys.copy') }}
-              </button>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg text-sm text-yellow-800 dark:text-yellow-200">
-            <span class="text-lg">⚠️</span>
-            <span>{{ t('apiKeys.copyWarning') }}</span>
-          </div>
-        </div>
-
-        <div class="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
-          <button @click="showSuccessModal = false" class="btn-primary">
-            {{ t('common.close') }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+      <template #footer>
+        <el-button type="primary" @click="showSuccessModal = false">
+          {{ t('common.close') }}
+        </el-button>
+      </template>
+    </el-dialog>
+  </el-card>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
-import SkeletonLoader from './SkeletonLoader.vue'
+import { Plus } from '@element-plus/icons-vue'
 
 const props = defineProps(['password'])
 const toast = inject('toast')
@@ -362,28 +348,15 @@ function copyKey() {
   }, 2000)
 }
 
-function formatDate(dateString) {
-  if (!dateString) return ''
-  const date = new Date(dateString)
+function formatDate(timestamp) {
+  if (!timestamp) return ''
+  const date = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp)
   return date.toLocaleString()
 }
 
-function isExpired(dateString) {
-  if (!dateString) return false
-  return new Date(dateString) < new Date()
+function isExpired(timestamp) {
+  if (!timestamp) return false
+  const date = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp)
+  return date < new Date()
 }
 </script>
-
-<style scoped>
-.key-card {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  transition: all 0.2s;
-}
-
-.key-card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-</style>
