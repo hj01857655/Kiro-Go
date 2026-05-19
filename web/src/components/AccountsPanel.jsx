@@ -35,12 +35,17 @@ export default function AccountsPanel({
   onShowDetail,
   onBatchEnable,
   onBatchDisable,
-  onBatchDelete
+  onBatchDelete,
+  searchInputRef,
+  selectedAccounts = [],
+  onSelectedAccountsChange
 }) {
   const [actionLoading, setActionLoading] = useState({})
-  const [selectedIds, setSelectedIds] = useState([])
   const [filterStatus, setFilterStatus] = useState('all')
   const [sortBy, setSortBy] = useState('lastUsed')
+
+  const selectedIds = selectedAccounts
+  const setSelectedIds = onSelectedAccountsChange || (() => {})
 
   const handleAction = async (id, action) => {
     setActionLoading({ ...actionLoading, [id]: action })
@@ -166,155 +171,192 @@ export default function AccountsPanel({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('all')}>
-          <CardContent className="pt-6">
+        <Card
+          className="card-hover cursor-pointer border-0 shadow-md glass overflow-hidden group relative"
+          onClick={() => setFilterStatus('all')}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <CardContent className="pt-6 relative z-10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">总账户</p>
-                <p className="text-2xl font-bold">{stats.total}</p>
+                <p className="text-sm font-medium text-muted-foreground mb-1">总账户</p>
+                <p className="text-3xl font-bold">{stats.total}</p>
               </div>
-              <Users className="w-8 h-8 text-muted-foreground" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg">
+                <Users className="w-6 h-6 text-white" />
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('enabled')}>
-          <CardContent className="pt-6">
+
+        <Card
+          className="card-hover cursor-pointer border-0 shadow-md glass overflow-hidden group relative"
+          onClick={() => setFilterStatus('enabled')}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <CardContent className="pt-6 relative z-10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">已启用</p>
-                <p className="text-2xl font-bold text-green-600">{stats.enabled}</p>
+                <p className="text-sm font-medium text-muted-foreground mb-1">已启用</p>
+                <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.enabled}</p>
               </div>
-              <CheckCircle2 className="w-8 h-8 text-green-600" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-lg">
+                <CheckCircle2 className="w-6 h-6 text-white" />
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('disabled')}>
-          <CardContent className="pt-6">
+
+        <Card
+          className="card-hover cursor-pointer border-0 shadow-md glass overflow-hidden group relative"
+          onClick={() => setFilterStatus('disabled')}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-gray-500/10 to-slate-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <CardContent className="pt-6 relative z-10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">已禁用</p>
-                <p className="text-2xl font-bold text-gray-400">{stats.disabled}</p>
+                <p className="text-sm font-medium text-muted-foreground mb-1">已禁用</p>
+                <p className="text-3xl font-bold text-gray-500 dark:text-gray-400">{stats.disabled}</p>
               </div>
-              <AlertCircle className="w-8 h-8 text-gray-400" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-500 to-slate-500 flex items-center justify-center shadow-lg">
+                <AlertCircle className="w-6 h-6 text-white" />
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setFilterStatus('pro')}>
-          <CardContent className="pt-6">
+
+        <Card
+          className="card-hover cursor-pointer border-0 shadow-md glass overflow-hidden group relative"
+          onClick={() => setFilterStatus('pro')}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <CardContent className="pt-6 relative z-10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Pro 账户</p>
-                <p className="text-2xl font-bold text-purple-600">{stats.pro}</p>
+                <p className="text-sm font-medium text-muted-foreground mb-1">Pro 账户</p>
+                <p className="text-3xl font-bold text-gradient">{stats.pro}</p>
               </div>
-              <TrendingUp className="w-8 h-8 text-purple-600" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg">
+                <TrendingUp className="w-6 h-6 text-white" />
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* 操作栏 */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          <div className="flex-1 w-full sm:w-auto">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="搜索账户（邮箱、昵称、ID）..."
-                value={searchTerm}
-                onChange={(e) => onSearchChange(e.target.value)}
-                className="pl-9 w-full"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lastUsed">最后使用</SelectItem>
-                <SelectItem value="email">邮箱</SelectItem>
-                <SelectItem value="requests">请求数</SelectItem>
-                <SelectItem value="usage">用量</SelectItem>
-              </SelectContent>
-            </Select>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  <Download className="w-4 h-4 sm:mr-2" />
-                  <span className="hidden sm:inline">导出</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>导出格式</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleExportJSON}>
-                  导出为 JSON
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportCSV}>
-                  导出为 CSV
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button onClick={onRefresh} variant="outline" disabled={loading}>
-              <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">刷新</span>
-            </Button>
-            <Button onClick={onAdd}>
-              <Plus className="w-4 h-4 sm:mr-2" />
-              <span className="hidden sm:inline">添加</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* 批量操作栏 */}
-        {selectedIds.length > 0 && (
-          <Card className="border-purple-200 bg-purple-50">
-            <CardContent className="py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={selectedIds.length === filteredAccounts.length}
-                    onCheckedChange={toggleSelectAll}
+      <Card className="border-0 shadow-md glass">
+        <CardContent className="pt-6">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+              <div className="flex-1 w-full sm:w-auto">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    ref={searchInputRef}
+                    placeholder="搜索账户（邮箱、昵称、ID）..."
+                    value={searchTerm}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                    className="pl-9 w-full border-2 focus:border-purple-500 dark:focus:border-purple-400 transition-colors"
                   />
-                  <span className="text-sm font-medium">
-                    已选择 {selectedIds.length} 个账户
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBatchAction(onBatchEnable)}
-                  >
-                    <Check className="w-4 h-4 mr-1" />
-                    批量启用
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBatchAction(onBatchDisable)}
-                  >
-                    <X className="w-4 h-4 mr-1" />
-                    批量禁用
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleBatchAction(onBatchDelete)}
-                  >
-                    <Trash2 className="w-4 h-4 mr-1" />
-                    批量删除
-                  </Button>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+              <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-[140px] border-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lastUsed">最后使用</SelectItem>
+                    <SelectItem value="email">邮箱</SelectItem>
+                    <SelectItem value="requests">请求数</SelectItem>
+                    <SelectItem value="usage">用量</SelectItem>
+                  </SelectContent>
+                </Select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="border-2">
+                      <Download className="w-4 h-4 sm:mr-2" />
+                      <span className="hidden sm:inline">导出</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="glass">
+                    <DropdownMenuLabel>导出格式</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleExportJSON}>
+                      导出为 JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleExportCSV}>
+                      导出为 CSV
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 btn-scale">
+                  <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">刷新</span>
+                </Button>
+                <Button
+                  onClick={onAdd}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-md hover:shadow-lg transition-all btn-scale"
+                >
+                  <Plus className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">添加</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* 批量操作栏 */}
+            {selectedIds.length > 0 && (
+              <div className="border-2 border-purple-200 dark:border-purple-800 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/50 dark:to-pink-950/50 rounded-lg p-4 animate-in slide-in-from-top-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      checked={selectedIds.length === filteredAccounts.length}
+                      onCheckedChange={toggleSelectAll}
+                      className="border-2"
+                    />
+                    <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
+                      已选择 {selectedIds.length} 个账户
+                    </span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleBatchAction(onBatchEnable)}
+                      className="border-2 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30 btn-scale"
+                    >
+                      <Check className="w-4 h-4 mr-1" />
+                      批量启用
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleBatchAction(onBatchDisable)}
+                      className="border-2 border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-950/30 btn-scale"
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      批量禁用
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleBatchAction(onBatchDelete)}
+                      className="shadow-md hover:shadow-lg btn-scale"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      批量删除
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* 账户列表 */}
       {loading ? (
@@ -339,79 +381,94 @@ export default function AccountsPanel({
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {filteredAccounts.map((account) => (
-            <Card key={account.id} className="hover:shadow-lg transition-all duration-200 border-l-4"
-                  style={{ borderLeftColor: account.enabled ? '#10b981' : '#d1d5db' }}>
-              <CardContent className="pt-6">
+          {filteredAccounts.map((account, index) => (
+            <Card
+              key={account.id}
+              className="card-hover border-0 shadow-md glass overflow-hidden group relative animate-in fade-in slide-in-from-bottom-2"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              {/* Status indicator bar */}
+              <div className={`absolute left-0 top-0 bottom-0 w-1 ${account.enabled ? 'bg-gradient-to-b from-green-500 to-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+
+              <CardContent className="pt-6 pl-8">
                 <div className="flex items-start gap-4">
                   {/* 选择框 */}
                   <Checkbox
                     checked={selectedIds.includes(account.id)}
                     onCheckedChange={() => toggleSelect(account.id)}
-                    className="mt-1"
+                    className="mt-1 border-2"
                   />
 
                   {/* 账户信息 */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <h3 className="font-semibold text-lg truncate">
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                      <h3 className="font-bold text-lg truncate">
                         {account.nickname || account.email}
                       </h3>
-                      <Badge {...getSubBadge(account.subscriptionType)}>
+                      <Badge
+                        className={`${
+                          account.subscriptionType?.includes('Pro')
+                            ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        }`}
+                      >
                         {getSubBadge(account.subscriptionType).label}
                       </Badge>
                       {account.enabled ? (
-                        <Badge variant="outline" className="text-green-600 border-green-600">
+                        <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-600 dark:border-green-400 border-2">
                           <CheckCircle2 className="w-3 h-3 mr-1" />
                           已启用
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-gray-400 border-gray-400">
+                        <Badge variant="outline" className="text-gray-500 dark:text-gray-400 border-gray-400 dark:border-gray-600 border-2">
                           已禁用
                         </Badge>
                       )}
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2"
+                        className="h-7 px-2 hover:bg-purple-100 dark:hover:bg-purple-900/30"
                         onClick={() => handleCopyId(account.id)}
                       >
-                        <Copy className="w-3 h-3" />
+                        <Copy className="w-3 h-3 mr-1" />
+                        <span className="text-xs">复制ID</span>
                       </Button>
                     </div>
-                    <p className="text-sm text-muted-foreground mb-3 truncate">{account.email}</p>
 
-                    <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <span className="font-medium">认证:</span>
-                        {account.authMethod === 'idc' ? 'IdC' : 'Social'}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="font-medium">请求:</span>
-                        {account.requestCount || 0}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="font-medium">最后使用:</span>
-                        {formatDate(account.lastUsed)}
-                      </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Activity className="w-4 h-4" />
+                        <span className="truncate">{account.email}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <TrendingUp className="w-4 h-4" />
+                        <span>请求: {account.requestCount || 0}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Activity className="w-4 h-4" />
+                        <span>最后使用: {formatDate(account.lastUsed)}</span>
+                      </div>
+                      {account.authMethod && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800">
+                            {account.authMethod === 'idc' ? 'IdC' : 'Social'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* 用量进度条 */}
-                    {account.usageCurrent !== undefined && (
-                      <div className="mt-3">
-                        <div className="flex justify-between text-xs mb-1.5">
-                          <span className="text-muted-foreground">用量</span>
-                          <span className="font-medium">
-                            {account.usageCurrent?.toFixed(2)} / {account.usageLimit?.toFixed(2)}
-                          </span>
+                    {account.usageLimit && (
+                      <div className="mb-4">
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                          <span>用量</span>
+                          <span>{account.usageCurrent || 0} / {account.usageLimit}</span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                           <div
-                            className={`h-2 rounded-full transition-all duration-300 ${
-                              (account.usageCurrent / account.usageLimit) > 0.9
-                                ? 'bg-red-500'
-                                : (account.usageCurrent / account.usageLimit) > 0.7
-                                ? 'bg-yellow-500'
+                            className={`h-full transition-all duration-300 ${
+                              (account.usageCurrent / account.usageLimit) > 0.8
+                                ? 'bg-gradient-to-r from-red-500 to-orange-500'
                                 : 'bg-gradient-to-r from-purple-600 to-pink-600'
                             }`}
                             style={{ width: `${Math.min((account.usageCurrent / account.usageLimit) * 100, 100)}%` }}
@@ -422,41 +479,52 @@ export default function AccountsPanel({
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex gap-2 flex-wrap lg:flex-nowrap">
+                  <div className="flex flex-col gap-2">
                     <Button
-                      variant="outline"
                       size="sm"
+                      variant="outline"
                       onClick={() => onShowDetail(account.id)}
+                      className="border-2 hover:border-purple-500 dark:hover:border-purple-400 btn-scale"
                     >
-                      <Eye className="w-4 h-4 lg:mr-2" />
-                      <span className="hidden lg:inline">详情</span>
+                      <Eye className="w-4 h-4 mr-1" />
+                      详情
                     </Button>
                     <Button
-                      variant="outline"
                       size="sm"
-                      onClick={() => handleAction(account.id, () => onRefreshAccount(account.id))}
-                      disabled={actionLoading[account.id] === 'refresh'}
-                    >
-                      <RefreshCw className={`w-4 h-4 lg:mr-2 ${actionLoading[account.id] === 'refresh' ? 'animate-spin' : ''}`} />
-                      <span className="hidden lg:inline">刷新</span>
-                    </Button>
-                    <Button
                       variant="outline"
-                      size="sm"
                       onClick={() => handleAction(account.id, () => onToggle(account.id, account.enabled))}
                       disabled={actionLoading[account.id] === 'toggle'}
+                      className="border-2 btn-scale"
                     >
-                      <Power className="w-4 h-4 lg:mr-2" />
-                      <span className="hidden lg:inline">{account.enabled ? '禁用' : '启用'}</span>
+                      {actionLoading[account.id] === 'toggle' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Power className="w-4 h-4 mr-1" />
+                      )}
+                      {account.enabled ? '禁用' : '启用'}
                     </Button>
                     <Button
-                      variant="destructive"
                       size="sm"
-                      onClick={() => handleAction(account.id, () => onDelete(account.id))}
-                      disabled={actionLoading[account.id] === 'delete'}
+                      variant="outline"
+                      onClick={() => handleAction(account.id, () => onRefreshAccount(account.id))}
+                      disabled={actionLoading[account.id] === 'refresh'}
+                      className="border-2 btn-scale"
                     >
-                      <Trash2 className="w-4 h-4 lg:mr-2" />
-                      <span className="hidden lg:inline">删除</span>
+                      {actionLoading[account.id] === 'refresh' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-1" />
+                      )}
+                      刷新
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => onDelete(account.id)}
+                      className="shadow-md hover:shadow-lg btn-scale"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      删除
                     </Button>
                   </div>
                 </div>
