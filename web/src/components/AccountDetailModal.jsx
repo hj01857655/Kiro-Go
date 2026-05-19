@@ -60,8 +60,8 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                     <Badge variant={account.enabled ? 'default' : 'secondary'}>
                       {account.enabled ? '已启用' : '已禁用'}
                     </Badge>
-                    {account.subscriptionType && (
-                      <Badge variant="outline">{account.subscriptionType}</Badge>
+                    {account.usageData?.subscriptionInfo?.type && (
+                      <Badge variant="outline">{account.usageData.subscriptionInfo.type}</Badge>
                     )}
                   </div>
                 </div>
@@ -88,7 +88,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
           <Separator />
 
           {/* 订阅信息 */}
-          {account.subscriptionInfo && (
+          {account.usageData?.subscriptionInfo && (
             <>
               <Separator />
               <div>
@@ -100,28 +100,28 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <p className="text-lg font-bold text-gradient">
-                        {account.subscriptionInfo.subscriptionTitle}
+                        {account.usageData.subscriptionInfo.subscriptionTitle}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {account.subscriptionInfo.type}
+                        {account.usageData.subscriptionInfo.type}
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      {account.subscriptionInfo.upgradeCapability === 'UPGRADE_CAPABLE' && (
+                      {account.usageData.subscriptionInfo.upgradeCapability === 'UPGRADE_CAPABLE' && (
                         <Badge className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700">
                           可升级
                         </Badge>
                       )}
-                      {account.subscriptionInfo.overageCapability === 'OVERAGE_CAPABLE' && (
+                      {account.usageData.subscriptionInfo.overageCapability === 'OVERAGE_CAPABLE' && (
                         <Badge className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
                           支持超额
                         </Badge>
                       )}
                     </div>
                   </div>
-                  {account.overageConfiguration && (
+                  {account.usageData.overageConfiguration && (
                     <div className="flex items-center gap-2 text-sm">
-                      {account.overageConfiguration.overageStatus === 'ENABLED' ? (
+                      {account.usageData.overageConfiguration.overageStatus === 'ENABLED' ? (
                         <>
                           <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
                           <span className="text-green-600 dark:text-green-400 font-medium">超额计费已启用</span>

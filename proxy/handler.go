@@ -2266,45 +2266,38 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 		// 获取运行时统计
 		stats := statsMap[a.ID]
 
-		// 动态解析UsageData
-		usageFields := parseUsageData(a.UsageData)
+		// 解析原始 UsageData 为结构化对象
+		var usageDataObj interface{}
+		if len(a.UsageData) > 0 {
+			json.Unmarshal(a.UsageData, &usageDataObj)
+		}
 
 		result[i] = map[string]interface{}{
-			"id":                a.ID,
-			"email":             a.Email,
-			"userId":            a.UserId,
-			"nickname":          a.Nickname,
-			"authMethod":        a.AuthMethod,
-			"provider":          a.Provider,
-			"region":            a.Region,
-			"enabled":           a.Enabled,
-			"banStatus":         a.BanStatus,
-			"banReason":         a.BanReason,
-			"banTime":           a.BanTime,
-			"expiresAt":         a.ExpiresAt,
-			"hasToken":          a.AccessToken != "",
-			"machineId":         a.MachineId,
-			"weight":            a.Weight,
-			"allowOverage":      a.AllowOverage,
-			"overageWeight":     a.OverageWeight,
-			"proxyURL":          a.ProxyURL,
-			"subscriptionType":  usageFields["subscriptionType"],
-			"subscriptionTitle": usageFields["subscriptionTitle"],
-			"usageCurrent":      usageFields["usageCurrent"],
-			"usageLimit":        usageFields["usageLimit"],
-			"usagePercent":      usageFields["usagePercent"],
-			"nextResetDate":     usageFields["nextResetDate"],
-			"lastRefresh":       a.LastRefresh,
-			"trialUsageCurrent": usageFields["trialUsageCurrent"],
-			"trialUsageLimit":   usageFields["trialUsageLimit"],
-			"trialUsagePercent": usageFields["trialUsagePercent"],
-			"trialStatus":       usageFields["trialStatus"],
-			"trialExpiresAt":    usageFields["trialExpiresAt"],
-			"requestCount":      stats.RequestCount,
-			"errorCount":        stats.ErrorCount,
-			"totalTokens":       stats.TotalTokens,
-			"totalCredits":      stats.TotalCredits,
-			"lastUsed":          stats.LastUsed,
+			"id":            a.ID,
+			"email":         a.Email,
+			"userId":        a.UserId,
+			"nickname":      a.Nickname,
+			"authMethod":    a.AuthMethod,
+			"provider":      a.Provider,
+			"region":        a.Region,
+			"enabled":       a.Enabled,
+			"banStatus":     a.BanStatus,
+			"banReason":     a.BanReason,
+			"banTime":       a.BanTime,
+			"expiresAt":     a.ExpiresAt,
+			"hasToken":      a.AccessToken != "",
+			"machineId":     a.MachineId,
+			"weight":        a.Weight,
+			"allowOverage":  a.AllowOverage,
+			"overageWeight": a.OverageWeight,
+			"proxyURL":      a.ProxyURL,
+			"usageData":     usageDataObj,
+			"lastRefresh":   a.LastRefresh,
+			"requestCount":  stats.RequestCount,
+			"errorCount":    stats.ErrorCount,
+			"totalTokens":   stats.TotalTokens,
+			"totalCredits":  stats.TotalCredits,
+			"lastUsed":      stats.LastUsed,
 		}
 	}
 	json.NewEncoder(w).Encode(result)

@@ -413,7 +413,7 @@ export default function AccountsPanel({
                       />
                       <div className="relative">
                         <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg ${
-                          account.subscriptionType?.includes('Pro')
+                          account.usageData?.subscriptionInfo?.type?.toUpperCase().includes('PRO')
                             ? 'bg-gradient-to-br from-purple-600 to-pink-600'
                             : 'bg-gradient-to-br from-gray-500 to-gray-600'
                         }`}>
@@ -458,12 +458,12 @@ export default function AccountsPanel({
                         <div className="flex flex-wrap gap-2 justify-end">
                           <Badge
                             className={`${
-                              account.subscriptionType?.includes('Pro')
+                              account.usageData?.subscriptionInfo?.type?.toUpperCase().includes('PRO')
                                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0 shadow-md'
                                 : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                             }`}
                           >
-                            {account.subscriptionInfo?.subscriptionTitle || account.subscriptionType || 'Free'}
+                            {account.usageData?.subscriptionInfo?.subscriptionTitle || account.usageData?.subscriptionInfo?.type || 'Free'}
                           </Badge>
                           {account.enabled ? (
                             <Badge className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 border-2">
@@ -559,7 +559,7 @@ export default function AccountsPanel({
                                   </div>
 
                                   {/* 超额状态徽章 */}
-                                  {account.overageConfiguration?.overageStatus === 'ENABLED' && (
+                                  {account.usageData?.overageConfiguration?.overageStatus === 'ENABLED' && (
                                     <Badge className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
                                       超额已启用
                                     </Badge>
