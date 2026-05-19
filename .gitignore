@@ -24,4 +24,7 @@ web/package-lock.json
 # OS
 .DS_Store
 Thumbs.db
-web/node_modules/
+
+# Node modules
+node_modules/
+package-lock.json

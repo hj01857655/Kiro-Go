@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './com
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
+import { Toaster } from './components/ui/sonner'
+import { toast } from 'sonner'
 import { RefreshCw, Trash2, Power, Plus, Search } from 'lucide-react'
 
 export default function App() {
@@ -62,10 +64,10 @@ export default function App() {
         loadAccounts(password)
         loadApiKeys(password)
       } else {
-        alert('密码错误')
+        toast.error('密码错误')
       }
     } catch (e) {
-      alert('登录失败')
+      toast.error('登录失败')
     }
   }
 
@@ -120,9 +122,12 @@ export default function App() {
       })
       if (res.ok) {
         loadAccounts()
+        toast.success('操作成功')
+      } else {
+        toast.error('操作失败')
       }
     } catch (e) {
-      alert('操作失败')
+      toast.error('操作失败')
     }
   }
 
@@ -134,15 +139,17 @@ export default function App() {
       })
       if (res.ok) {
         loadAccounts()
-        alert('刷新成功')
+        toast.success('刷新成功')
+      } else {
+        toast.error('刷新失败')
       }
     } catch (e) {
-      alert('刷新失败')
+      toast.error('刷新失败')
     }
   }
 
   const deleteAccount = async (id) => {
-    if (!confirm('确定要删除此账户吗？')) return
+    if (!window.confirm('确定要删除此账户吗？')) return
     try {
       const res = await fetch(`/admin/api/accounts/${id}`, {
         method: 'DELETE',
@@ -150,10 +157,12 @@ export default function App() {
       })
       if (res.ok) {
         loadAccounts()
-        alert('删除成功')
+        toast.success('删除成功')
+      } else {
+        toast.error('删除失败')
       }
     } catch (e) {
-      alert('删除失败')
+      toast.error('删除失败')
     }
   }
 
@@ -166,9 +175,11 @@ export default function App() {
         const data = await res.json()
         setAccountDetail(data)
         setDetailOpen(true)
+      } else {
+        toast.error('加载详情失败')
       }
     } catch (e) {
-      alert('加载详情失败')
+      toast.error('加载详情失败')
     }
   }
 
@@ -180,7 +191,7 @@ export default function App() {
 
   const importLocalAccount = async () => {
     if (!tokenJson.trim()) {
-      alert('请输入Token JSON')
+      toast.error('请输入Token JSON')
       return
     }
 
@@ -188,12 +199,12 @@ export default function App() {
     try {
       tokenData = JSON.parse(tokenJson)
     } catch {
-      alert('Token JSON格式错误')
+      toast.error('Token JSON格式错误')
       return
     }
 
     if (!tokenData.refreshToken) {
-      alert('Token JSON缺少refreshToken字段')
+      toast.error('Token JSON缺少refreshToken字段')
       return
     }
 
@@ -202,17 +213,17 @@ export default function App() {
 
     if (!isSocial) {
       if (!clientJson.trim()) {
-        alert('请输入Client JSON')
+        toast.error('请输入Client JSON')
         return
       }
       try {
         clientData = JSON.parse(clientJson)
       } catch {
-        alert('Client JSON格式错误')
+        toast.error('Client JSON格式错误')
         return
       }
       if (!clientData.clientId || !clientData.clientSecret) {
-        alert('Client JSON缺少clientId或clientSecret字段')
+        toast.error('Client JSON缺少clientId或clientSecret字段')
         return
       }
     }
@@ -241,17 +252,17 @@ export default function App() {
         setTokenJson('')
         setClientJson('')
         loadAccounts()
-        alert('导入成功: ' + (data.account?.email || data.account?.id))
+        toast.success('导入成功: ' + (data.account?.email || data.account?.id))
       } else {
-        alert('导入失败: ' + data.error)
+        toast.error('导入失败: ' + data.error)
       }
     } catch (e) {
-      alert('导入失败')
+      toast.error('导入失败')
     }
   }
 
   const createApiKey = async () => {
-    const name = prompt('请输入API密钥名称')
+    const name = window.prompt('请输入API密钥名称')
     if (!name) return
 
     try {
@@ -266,15 +277,17 @@ export default function App() {
       const data = await res.json()
       if (data.key) {
         loadApiKeys()
-        alert('API密钥创建成功，请保存:\n' + data.key)
+        toast.success('API密钥创建成功，请保存: ' + data.key, { duration: 10000 })
+      } else {
+        toast.error('创建失败')
       }
     } catch (e) {
-      alert('创建失败')
+      toast.error('创建失败')
     }
   }
 
   const deleteApiKey = async (id) => {
-    if (!confirm('确定要删除此API密钥吗？')) return
+    if (!window.confirm('确定要删除此API密钥吗？')) return
     try {
       const res = await fetch(`/admin/api/keys/${id}`, {
         method: 'DELETE',
@@ -282,10 +295,12 @@ export default function App() {
       })
       if (res.ok) {
         loadApiKeys()
-        alert('删除成功')
+        toast.success('删除成功')
+      } else {
+        toast.error('删除失败')
       }
     } catch (e) {
-      alert('删除失败')
+      toast.error('删除失败')
     }
   }
 
@@ -354,22 +369,13 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-6">
-            <TabsTrigger
-              active={activeTab === 'accounts'}
-              onClick={() => setActiveTab('accounts')}
-            >
+            <TabsTrigger value="accounts">
               账户管理
             </TabsTrigger>
-            <TabsTrigger
-              active={activeTab === 'apikeys'}
-              onClick={() => setActiveTab('apikeys')}
-            >
+            <TabsTrigger value="apikeys">
               API密钥
             </TabsTrigger>
-            <TabsTrigger
-              active={activeTab === 'settings'}
-              onClick={() => setActiveTab('settings')}
-            >
+            <TabsTrigger value="settings">
               系统设置
             </TabsTrigger>
           </TabsList>
@@ -672,6 +678,8 @@ export default function App() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Toaster />
     </div>
   )
 }
