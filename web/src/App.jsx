@@ -114,7 +114,7 @@ export default function App() {
   const toggleAccount = async (id, enabled) => {
     try {
       const res = await fetch(`/admin/api/accounts/${id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'X-Admin-Password': password
