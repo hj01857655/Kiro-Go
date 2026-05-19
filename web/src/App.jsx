@@ -3,8 +3,6 @@ import { Toaster } from './components/ui/sonner'
 import { toast } from 'sonner'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { ThemeToggle } from './components/ThemeToggle'
-import { KeyboardShortcutsDialog, useKeyboardShortcuts } from './components/KeyboardShortcuts'
-import { CommandPalette } from './components/CommandPalette'
 import LoginPage from './components/LoginPage'
 import AccountsPanel from './components/AccountsPanel'
 import ApiKeysPanel from './components/ApiKeysPanel'
@@ -14,7 +12,7 @@ import AddAccountModal from './components/AddAccountModal'
 import ConfirmDialog from './components/ConfirmDialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Button } from './components/ui/button'
-import { LogOut, Keyboard } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 
 function AppContent() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -40,53 +38,6 @@ function AppContent() {
     variant: 'default'
   })
 
-  // 命令处理
-  const handleCommand = (command) => {
-    const [action, param] = command.split(':')
-
-    switch (action) {
-      case 'tab':
-        setActiveTab(param)
-        break
-      case 'add':
-        setAddOpen(true)
-        break
-      case 'refresh':
-        loadAccounts()
-        loadApiKeys()
-        break
-      case 'search':
-        searchInputRef.current?.focus()
-        break
-      case 'shortcuts':
-        setShortcutsOpen(true)
-        break
-      case 'batch':
-        if (param === 'enable') handleBatchEnable(selectedAccounts)
-        else if (param === 'disable') handleBatchDisable(selectedAccounts)
-        else if (param === 'delete') handleBatchDelete(selectedAccounts)
-        break
-      case 'export':
-        if (param === 'json') handleExportJSON()
-        else if (param === 'csv') handleExportCSV()
-        break
-      case 'theme':
-        setTheme(param)
-        break
-      case 'logout':
-        handleLogout()
-        break
-    }
-  }
-
-  // 键盘快捷键
-  const { commandOpen, setCommandOpen, shortcutsOpen, setShortcutsOpen } = useKeyboardShortcuts({
-    onSearch: () => searchInputRef.current?.focus(),
-    onAdd: () => setAddOpen(true),
-    onRefresh: () => loadAccounts(),
-    onTabChange: (tab) => setActiveTab(tab),
-    onCommand: handleCommand,
-  })
 
   useEffect(() => {
     const savedPassword = localStorage.getItem('admin_password')
@@ -447,15 +398,6 @@ function AppContent() {
               </h1>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShortcutsOpen(true)}
-                title="键盘快捷键 (Ctrl+/)"
-                className="hover:bg-purple-100 dark:hover:bg-purple-900/30"
-              >
-                <Keyboard className="w-4 h-4" />
-              </Button>
               <ThemeToggle />
               <Button
                 variant="outline"
@@ -549,19 +491,6 @@ function AppContent() {
         description={confirmDialog.description}
         onConfirm={confirmDialog.onConfirm}
         variant={confirmDialog.variant}
-      />
-
-      <CommandPalette
-        open={commandOpen}
-        onOpenChange={setCommandOpen}
-        onCommand={handleCommand}
-        activeTab={activeTab}
-        selectedAccounts={selectedAccounts}
-      />
-
-      <KeyboardShortcutsDialog
-        open={shortcutsOpen}
-        onOpenChange={setShortcutsOpen}
       />
 
       <Toaster />

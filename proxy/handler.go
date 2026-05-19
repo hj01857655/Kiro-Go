@@ -2270,6 +2270,14 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 		var usageDataObj interface{}
 		if len(a.UsageData) > 0 {
 			json.Unmarshal(a.UsageData, &usageDataObj)
+
+			// 处理双重编码：如果解析结果是字符串，需要再次解析
+			if str, ok := usageDataObj.(string); ok {
+				var innerObj interface{}
+				if err := json.Unmarshal([]byte(str), &innerObj); err == nil {
+					usageDataObj = innerObj
+				}
+			}
 		}
 
 		result[i] = map[string]interface{}{
@@ -3387,6 +3395,12 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 	// 动态解析UsageData
 	usageFields := parseUsageData(account.UsageData)
 
+	// 解析完整的 usageData 对象
+	var usageDataObj interface{}
+	if len(account.UsageData) > 0 {
+		json.Unmarshal(account.UsageData, &usageDataObj)
+	}
+
 	// 返回完整账号信息（包含敏感字段）
 	result := map[string]interface{}{
 		"id":                account.ID,
@@ -3422,6 +3436,7 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 		"trialUsagePercent": usageFields["trialUsagePercent"],
 		"trialStatus":       usageFields["trialStatus"],
 		"trialExpiresAt":    usageFields["trialExpiresAt"],
+		"usageData":         usageDataObj, // 添加完整的 usageData 对象
 		"requestCount":      stats.RequestCount,
 		"errorCount":        stats.ErrorCount,
 		"totalTokens":       stats.TotalTokens,
