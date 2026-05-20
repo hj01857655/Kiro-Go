@@ -361,7 +361,7 @@ export default function AccountsPanel({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {filteredAccounts.map((account, index) => {
             const breakdown = getBreakdown(account)
             const quota = getQuota(account)
@@ -394,14 +394,14 @@ export default function AccountsPanel({
                 <CardContent className="pt-1.5 pb-1.5">
                   <div className="flex gap-1.5">
                     {/* 左侧：头像和选择框 */}
-                    <div className="flex flex-col items-center gap-1">
+                    <div className="flex flex-col items-center gap-0.5">
                       <Checkbox
                         checked={selectedIds.includes(account.id)}
                         onCheckedChange={() => toggleSelect(account.id)}
                         className="border border-border"
                       />
                       <div className="relative">
-                        <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                        <div className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold text-white shadow-sm ${
                           (account.usageData?.subscriptionInfo?.type || '').toUpperCase().includes('PRO')
                             ? 'bg-gradient-to-br from-purple-600 to-pink-600'
                             : 'bg-gradient-to-br from-muted-foreground to-muted-foreground'
@@ -409,7 +409,7 @@ export default function AccountsPanel({
                           {(account.nickname || account.email || 'U').charAt(0).toUpperCase()}
                         </div>
                         {/* 状态指示器 */}
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background ${
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-background ${
                           account.enabled ? 'bg-green-500' : 'bg-muted-foreground'
                         }`}>
                           {account.enabled && (
@@ -420,7 +420,7 @@ export default function AccountsPanel({
                     </div>
 
                     {/* 中间：主要信息 */}
-                    <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex-1 min-w-0 space-y-1">
                       {/* 标题行 */}
                       <div className="flex items-start justify-between gap-1">
                         <div className="flex-1 min-w-0">
@@ -473,20 +473,20 @@ export default function AccountsPanel({
                       </div>
 
                       {/* 统计数据 */}
-                      <div className="flex gap-1 flex-wrap">
-                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 flex items-center gap-1">
+                      <div className="flex gap-0.5 flex-wrap">
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded px-1 py-0.5 border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
                           <TrendingUp className="w-2 h-2 text-blue-600 dark:text-blue-400" />
                           <span className="text-xs text-blue-700 dark:text-blue-300">请求</span>
                           <span className="text-xs font-bold text-blue-900 dark:text-blue-100">{account.requestCount || 0}</span>
                         </div>
 
-                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/30 rounded px-1.5 py-0.5 border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/30 rounded px-1 py-0.5 border border-purple-200 dark:border-purple-800 flex items-center gap-0.5">
                           <Activity className="w-2 h-2 text-purple-600 dark:text-purple-400" />
                           <span className="text-xs text-purple-700 dark:text-purple-300">认证</span>
                           <span className="text-xs font-bold text-purple-900 dark:text-purple-100">{account.authMethod === 'idc' ? 'IdC' : 'Social'}</span>
                         </div>
 
-                        <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/30 dark:to-green-900/30 rounded px-1.5 py-0.5 border border-green-200 dark:border-green-800 flex items-center gap-1">
+                        <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/30 dark:to-green-900/30 rounded px-1 py-0.5 border border-green-200 dark:border-green-800 flex items-center gap-0.5">
                           <Clock className="w-2 h-2 text-green-600 dark:text-green-400" />
                           <span className="text-xs text-green-700 dark:text-green-300">最后</span>
                           <span className="text-xs font-semibold text-green-900 dark:text-green-100">{formatDate(account.lastUsed)}</span>
@@ -495,7 +495,7 @@ export default function AccountsPanel({
 
                       {/* 用量和额度详情 */}
                       {breakdown && (
-                        <div className="bg-gradient-to-br from-secondary to-secondary rounded px-1.5 py-1 border border-border space-y-0.5">
+                        <div className="bg-gradient-to-br from-secondary to-secondary rounded px-1.5 py-0.5 border border-border space-y-0.5">
                           {/* 标题行 */}
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-0.5">
@@ -565,10 +565,15 @@ export default function AccountsPanel({
 
                           {/* 超额信息 - 只有具备超额资格的账号才显示 */}
                           {hasOverageCapability && overageRate > 0 && (
-                            <div className="pt-0.5 border-t border-border space-y-0.5">
-                              {/* 超额开关 */}
-                              <div className="flex items-center justify-between py-1">
-                                <span className="text-xs text-muted-foreground">超额计费</span>
+                            <div className="pt-0.5 mt-0.5 border-t border-border">
+                              {/* 超额开关 - 使用卡片样式 */}
+                              <div className="flex items-center justify-between p-1 bg-gradient-to-br from-purple-50/50 to-pink-50/50 dark:from-purple-950/20 dark:to-pink-950/20 rounded border border-purple-200 dark:border-purple-800/50 mb-0.5">
+                                <div className="flex items-center gap-1">
+                                  <div className="w-4 h-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                                    <Activity className="w-2.5 h-2.5 text-white" />
+                                  </div>
+                                  <span className="text-xs font-medium text-purple-900 dark:text-purple-100">超额计费</span>
+                                </div>
                                 <Switch
                                   checked={overageEnabled}
                                   onCheckedChange={(enabled) => handleOverageToggle(account.id, enabled)}
@@ -578,9 +583,9 @@ export default function AccountsPanel({
                               </div>
 
                               {/* 当前超额使用 */}
-                              <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center justify-between text-xs mb-0.5">
                                 <span className={hasOverageUsage ? "text-purple-600 dark:text-purple-400 font-bold" : "text-muted-foreground"}>
-                                  超额
+                                  已用超额
                                 </span>
                                 <span className={hasOverageUsage ? "font-bold text-purple-600 dark:text-purple-400" : "text-muted-foreground"}>
                                   {formatUsage(overageUsed)} / {formatUsage(overageCap)}
@@ -588,7 +593,7 @@ export default function AccountsPanel({
                               </div>
 
                               {/* 超额进度条 */}
-                              <div className="h-1 rounded-full bg-purple-500/10 overflow-hidden">
+                              <div className="h-1 rounded-full bg-purple-500/10 overflow-hidden mb-0.5">
                                 <div
                                   className="h-full bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-500"
                                   style={{ width: `${overageCap > 0 ? Math.min((overageUsed / overageCap) * 100, 100) : 0}%` }}
@@ -597,8 +602,8 @@ export default function AccountsPanel({
 
                               {/* 超额费用 */}
                               {overageCharges > 0 && (
-                                <div className="flex items-center justify-between text-xs pt-0.5 border-t border-border">
-                                  <span className="text-muted-foreground">费用</span>
+                                <div className="flex items-center justify-between text-xs p-1 bg-red-50 dark:bg-red-950/20 rounded border border-red-200 dark:border-red-800/50">
+                                  <span className="text-red-700 dark:text-red-300 font-medium">已产生费用</span>
                                   <span className="font-bold text-red-600 dark:text-red-400">
                                     {breakdown.currency || 'USD'} {overageCharges.toFixed(2)}
                                   </span>
