@@ -179,10 +179,10 @@ function AppContent() {
       })
       if (res.ok) {
         const data = await res.json()
-        // 后端返回 { success: true, info: {...} }，需要使用 data.info
-        if (data.success && data.info) {
+        // 后端现在返回 { success: true, account: {...} }，包含完整的账户数据
+        if (data.success && data.account) {
           setAccounts(prev => prev.map(acc =>
-            acc.id === id ? { ...acc, ...data.info } : acc
+            acc.id === id ? data.account : acc
           ))
           toast.success('刷新成功')
         } else {

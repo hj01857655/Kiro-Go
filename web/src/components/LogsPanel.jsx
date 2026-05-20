@@ -32,7 +32,7 @@ export default function LogsPanel({ password }) {
       })
       if (res.ok) {
         const data = await res.json()
-        setLogs(data || [])
+        setLogs(data.logs || [])
       } else {
         toast.error('加载日志失败')
       }

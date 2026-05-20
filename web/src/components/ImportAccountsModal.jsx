@@ -3,9 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Label } from './ui/label'
-import { Card, CardContent } from './ui/card'
 import { toast } from 'sonner'
-import { Upload, FileJson, Loader2, AlertCircle } from 'lucide-react'
+import { Upload, Loader2, AlertCircle } from 'lucide-react'
 
 export default function ImportAccountsModal({ open, onOpenChange, password, onSuccess }) {
   const [jsonContent, setJsonContent] = useState('')
@@ -122,83 +121,54 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
         </DialogHeader>
 
         <div className="space-y-4">
-          <Card className="border-2 border-dashed border-blue-200 dark:border-blue-800 glass">
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-md bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center shadow-md flex-shrink-0">
-                    <FileJson className="w-5 h-5 text-white" />
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <Label htmlFor="file-upload" className="cursor-pointer">
+                  <div className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-border rounded-lg hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors">
+                    <Upload className="w-4 h-4" />
+                    <span className="text-sm">选择 JSON 文件</span>
                   </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">JSON 格式说明</h3>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      支持单个对象或数组格式，必须包含 refreshToken 字段
-                    </p>
-                    <div className="bg-muted p-3 rounded-md font-mono text-xs overflow-x-auto">
-                      <pre>{`[
-  {
-    "refreshToken": "...",
-    "accessToken": "...",
-    "clientId": "...",
-    "clientSecret": "...",
-    "provider": "BuilderId",
-    "authMethod": "idc",
-    "region": "us-east-1"
-  }
-]`}</pre>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <Label htmlFor="file-upload" className="cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-border rounded-lg hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors">
-                        <Upload className="w-4 h-4" />
-                        <span className="text-sm">选择 JSON 文件</span>
-                      </div>
-                    </Label>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      accept=".json"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                  </div>
-                  <span className="text-sm text-muted-foreground">或</span>
-                  <div className="flex-1 text-center text-sm text-muted-foreground">
-                    直接粘贴到下方
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="jsonContent">JSON 内容</Label>
-                  <Textarea
-                    id="jsonContent"
-                    placeholder='粘贴或上传 JSON 内容...'
-                    value={jsonContent}
-                    onChange={(e) => setJsonContent(e.target.value)}
-                    rows={12}
-                    className="font-mono text-xs"
-                  />
-                </div>
-
-                <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
-                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-amber-700 dark:text-amber-300">
-                    <p className="font-medium mb-1">注意事项：</p>
-                    <ul className="list-disc list-inside space-y-0.5">
-                      <li>必须包含 refreshToken 字段</li>
-                      <li>如果是 IdC 认证，需要提供 clientId 和 clientSecret</li>
-                      <li>Social 认证（Google/Github）只需要 refreshToken</li>
-                      <li>导入时会自动刷新 token 并获取账户信息</li>
-                    </ul>
-                  </div>
-                </div>
+                </Label>
+                <input
+                  id="file-upload"
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
               </div>
-            </CardContent>
-          </Card>
+              <span className="text-sm text-muted-foreground">或</span>
+              <div className="flex-1 text-center text-sm text-muted-foreground">
+                直接粘贴到下方
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="jsonContent">JSON 内容</Label>
+              <Textarea
+                id="jsonContent"
+                placeholder='粘贴或上传 JSON 内容...'
+                value={jsonContent}
+                onChange={(e) => setJsonContent(e.target.value)}
+                rows={12}
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="font-medium mb-1">注意事项：</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  <li>必须包含 refreshToken 字段</li>
+                  <li>如果是 IdC 认证，需要提供 clientId 和 clientSecret</li>
+                  <li>Social 认证（Google/Github）只需要 refreshToken</li>
+                  <li>导入时会自动刷新 token 并获取账户信息</li>
+                </ul>
+              </div>
+            </div>
+          </div>
 
           <div className="flex gap-2">
             <Button

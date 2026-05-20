@@ -11,6 +11,7 @@ import (
 	"kiro-go/logger"
 	"kiro-go/pool"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3520,9 +3521,81 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
+	// 重新加载 pool 以获取最新的运行时统计
+	h.pool.Reload()
+
+	// 获取完整的账户数据（包括运行时统计）
+	accounts = config.GetAccounts()
+	poolAccounts := h.pool.GetAllAccounts()
+
+	var fullAccount *config.Account
+	for i := range accounts {
+		if accounts[i].ID == id {
+			fullAccount = &accounts[i]
+			break
+		}
+	}
+
+	if fullAccount == nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Account not found after refresh"})
+		return
+	}
+
+	// 获取运行时统计
+	var stats config.Account
+	for _, a := range poolAccounts {
+		if a.ID == id {
+			stats = a
+			break
+		}
+	}
+
+	// 解析 UsageData
+	var usageDataObj interface{}
+	if len(fullAccount.UsageData) > 0 {
+		json.Unmarshal(fullAccount.UsageData, &usageDataObj)
+		// 处理双重编码
+		if str, ok := usageDataObj.(string); ok {
+			var innerObj interface{}
+			if err := json.Unmarshal([]byte(str), &innerObj); err == nil {
+				usageDataObj = innerObj
+			}
+		}
+	}
+
+	// 返回完整的账户数据（与 apiGetAccounts 格式一致）
+	result := map[string]interface{}{
+		"id":            fullAccount.ID,
+		"email":         fullAccount.Email,
+		"userId":        fullAccount.UserId,
+		"nickname":      fullAccount.Nickname,
+		"authMethod":    fullAccount.AuthMethod,
+		"provider":      fullAccount.Provider,
+		"region":        fullAccount.Region,
+		"enabled":       fullAccount.Enabled,
+		"banStatus":     fullAccount.BanStatus,
+		"banReason":     fullAccount.BanReason,
+		"banTime":       fullAccount.BanTime,
+		"expiresAt":     fullAccount.ExpiresAt,
+		"hasToken":      fullAccount.AccessToken != "",
+		"machineId":     fullAccount.MachineId,
+		"weight":        fullAccount.Weight,
+		"allowOverage":  fullAccount.AllowOverage,
+		"overageWeight": fullAccount.OverageWeight,
+		"proxyURL":      fullAccount.ProxyURL,
+		"usageData":     usageDataObj,
+		"lastRefresh":   fullAccount.LastRefresh,
+		"requestCount":  stats.RequestCount,
+		"errorCount":    stats.ErrorCount,
+		"totalTokens":   stats.TotalTokens,
+		"totalCredits":  stats.TotalCredits,
+		"lastUsed":      stats.LastUsed,
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"info":    info,
+		"account": result,
 	})
 }
 
@@ -4251,8 +4324,57 @@ func (h *Handler) apiClearAuditLogs(w http.ResponseWriter, r *http.Request) {
 // ==================== Request Logs API ====================
 
 func (h *Handler) apiGetRequestLogs(w http.ResponseWriter, r *http.Request) {
-	logs := config.GetRequestLogs()
-	json.NewEncoder(w).Encode(logs)
+	// 获取分页参数
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("pageSize")
+
+	page := 1
+	pageSize := 50 // 默认每页50条
+
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if pageSizeStr != "" {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 500 {
+			pageSize = ps
+		}
+	}
+
+	allLogs := config.GetRequestLogs()
+	total := len(allLogs)
+
+	// 计算分页
+	start := (page - 1) * pageSize
+	end := start + pageSize
+
+	if start >= total {
+		// 超出范围，返回空数组
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs":     []interface{}{},
+			"total":    total,
+			"page":     page,
+			"pageSize": pageSize,
+			"pages":    (total + pageSize - 1) / pageSize,
+		})
+		return
+	}
+
+	if end > total {
+		end = total
+	}
+
+	logs := allLogs[start:end]
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"logs":     logs,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+		"pages":    (total + pageSize - 1) / pageSize,
+	})
 }
 
 func (h *Handler) apiClearRequestLogs(w http.ResponseWriter, r *http.Request) {
