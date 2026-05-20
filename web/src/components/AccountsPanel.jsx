@@ -200,13 +200,13 @@ export default function AccountsPanel({
                     placeholder="搜索账户（邮箱、昵称、ID）..."
                     value={searchTerm}
                     onChange={(e) => onSearchChange(e.target.value)}
-                    className="pl-9 w-full border-2 border-gray-300 dark:border-gray-600 focus:border-purple-500 dark:focus:border-purple-400 transition-colors"
+                    className="pl-9 w-full border-2 focus:border-purple-500 dark:focus:border-purple-400 transition-colors"
                   />
                 </div>
               </div>
               <div className="flex gap-2 w-full sm:w-auto flex-wrap">
                 <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[140px] border-2 border-gray-300 dark:border-gray-600">
+                  <SelectTrigger className="w-[140px] border-2">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -218,7 +218,7 @@ export default function AccountsPanel({
                 </Select>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="border-2 border-gray-300 dark:border-gray-600">
+                    <Button variant="outline" className="border-2 border-border">
                       <Download className="w-4 h-4 sm:mr-2" />
                       <span className="hidden sm:inline">导出</span>
                     </Button>
@@ -234,7 +234,7 @@ export default function AccountsPanel({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 border-gray-300 dark:border-gray-600 btn-scale">
+                <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 border-border btn-scale">
                   <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">刷新</span>
                 </Button>
@@ -256,7 +256,7 @@ export default function AccountsPanel({
                     <Checkbox
                       checked={selectedIds.length === filteredAccounts.length}
                       onCheckedChange={toggleSelectAll}
-                      className="border-2 border-gray-300 dark:border-gray-600"
+                      className="border-2"
                     />
                     <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
                       已选择 {selectedIds.length} 个账户
@@ -288,7 +288,7 @@ export default function AccountsPanel({
                       size="sm"
                       variant="outline"
                       onClick={() => handleBatchAction(onBatchDisable)}
-                      className="border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-950/30 btn-scale"
+                      className="border-2 border-border hover:bg-secondary btn-scale"
                     >
                       <X className="w-4 h-4 mr-1" />
                       批量禁用
@@ -317,14 +317,14 @@ export default function AccountsPanel({
           <p>加载中...</p>
         </div>
       ) : filteredAccounts.length === 0 ? (
-        <Card>
+        <Card className="border-0 shadow-md glass">
           <CardContent className="py-16 text-center">
             <Activity className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <p className="text-lg font-medium text-muted-foreground mb-2">
               {searchTerm || filterStatus !== 'all' ? '未找到匹配的账户' : '暂无账户'}
             </p>
             {!searchTerm && filterStatus === 'all' && (
-              <Button onClick={onAdd} variant="outline" className="mt-4">
+              <Button onClick={onAdd} variant="outline" className="mt-4 border-2 border-border">
                 <Plus className="w-4 h-4 mr-2" />
                 添加第一个账户
               </Button>
@@ -359,7 +359,7 @@ export default function AccountsPanel({
                 <div className={`absolute top-0 left-0 right-0 h-1 ${
                   account.enabled
                     ? 'bg-gradient-to-r from-green-500 via-emerald-500 to-green-500'
-                    : 'bg-gradient-to-r from-gray-400 to-gray-500'
+                    : 'bg-gradient-to-r from-muted-foreground to-muted-foreground'
                 }`} />
 
                 <CardContent className="pt-1.5 pb-1.5">
@@ -369,19 +369,19 @@ export default function AccountsPanel({
                       <Checkbox
                         checked={selectedIds.includes(account.id)}
                         onCheckedChange={() => toggleSelect(account.id)}
-                        className="border"
+                        className="border border-border"
                       />
                       <div className="relative">
                         <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white shadow-sm ${
                           (account.usageData?.subscriptionInfo?.type || '').toUpperCase().includes('PRO')
                             ? 'bg-gradient-to-br from-purple-600 to-pink-600'
-                            : 'bg-gradient-to-br from-gray-500 to-gray-600'
+                            : 'bg-gradient-to-br from-muted-foreground to-muted-foreground'
                         }`}>
                           {(account.nickname || account.email || 'U').charAt(0).toUpperCase()}
                         </div>
                         {/* 状态指示器 */}
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white dark:border-gray-900 ${
-                          account.enabled ? 'bg-green-500' : 'bg-gray-400'
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background ${
+                          account.enabled ? 'bg-green-500' : 'bg-muted-foreground'
                         }`}>
                           {account.enabled && (
                             <div className="absolute inset-0 rounded-full bg-green-500 animate-ping opacity-75" />
@@ -422,7 +422,7 @@ export default function AccountsPanel({
                             className={`text-xs h-4 px-1 ${
                               (account.usageData?.subscriptionInfo?.type || '').toUpperCase().includes('PRO')
                                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0 shadow-sm'
-                                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                                : 'bg-secondary text-secondary-foreground'
                             }`}
                           >
                             {account.usageData?.subscriptionInfo?.subscriptionTitle ||
@@ -436,7 +436,7 @@ export default function AccountsPanel({
                               启用
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="text-xs h-4 px-1 text-gray-500 dark:text-gray-400 border-gray-400 dark:border-gray-600">
+                            <Badge variant="outline" className="text-xs h-4 px-1 text-muted-foreground border-border">
                               禁用
                             </Badge>
                           )}
@@ -466,7 +466,7 @@ export default function AccountsPanel({
 
                       {/* 用量和额度详情 */}
                       {breakdown && (
-                        <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded px-1.5 py-1 border border-gray-200 dark:border-gray-700 space-y-0.5">
+                        <div className="bg-gradient-to-br from-secondary to-secondary rounded px-1.5 py-1 border border-border space-y-0.5">
                           {/* 标题行 */}
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-0.5">
@@ -518,7 +518,7 @@ export default function AccountsPanel({
                                 {hasOverageUsage ? '超额' : `${percent.toFixed(1)}%`}
                               </span>
                             </div>
-                            <div className="relative h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="relative h-1 bg-secondary rounded-full overflow-hidden">
                               <div
                                 className={`h-full transition-all duration-500 ${
                                   hasOverageUsage
@@ -536,7 +536,7 @@ export default function AccountsPanel({
 
                           {/* 超额信息 - 只有具备超额资格的账号才显示 */}
                           {hasOverageCapability && overageRate > 0 && (
-                            <div className="pt-0.5 border-t border-gray-300 dark:border-gray-600 space-y-0.5">
+                            <div className="pt-0.5 border-t border-border space-y-0.5">
                               {/* 当前超额使用 */}
                               <div className="flex items-center justify-between text-xs">
                                 <span className={hasOverageUsage ? "text-purple-600 dark:text-purple-400 font-bold" : "text-muted-foreground"}>
@@ -557,7 +557,7 @@ export default function AccountsPanel({
 
                               {/* 超额费用 */}
                               {overageCharges > 0 && (
-                                <div className="flex items-center justify-between text-xs pt-0.5 border-t border-gray-300 dark:border-gray-600">
+                                <div className="flex items-center justify-between text-xs pt-0.5 border-t border-border">
                                   <span className="text-muted-foreground">费用</span>
                                   <span className="font-bold text-red-600 dark:text-red-400">
                                     {breakdown.currency || 'USD'} {overageCharges.toFixed(2)}
@@ -569,7 +569,7 @@ export default function AccountsPanel({
 
                           {/* 重置时间 */}
                           {breakdown.nextDateReset && (
-                            <div className="flex items-center gap-0.5 text-xs text-muted-foreground pt-0.5 border-t border-gray-300 dark:border-gray-600">
+                            <div className="flex items-center gap-0.5 text-xs text-muted-foreground pt-0.5 border-t border-border">
                               <Clock className="w-2.5 h-2.5" />
                               <span>
                                 {new Date(breakdown.nextDateReset * 1000).toLocaleString('zh-CN', {
@@ -591,7 +591,7 @@ export default function AccountsPanel({
                         size="icon"
                         variant="outline"
                         onClick={() => onShowDetail(account.id)}
-                        className="h-7 w-7 border border-gray-300 dark:border-gray-600 hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30 btn-scale"
+                        className="h-7 w-7 border border-border hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30 btn-scale"
                         title="查看详情"
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -601,7 +601,7 @@ export default function AccountsPanel({
                         variant="outline"
                         onClick={() => handleAction(account.id, () => onToggle(account.id, account.enabled))}
                         disabled={actionLoading[account.id] === 'toggle'}
-                        className={`h-7 w-7 border border-gray-300 dark:border-gray-600 btn-scale ${
+                        className={`h-7 w-7 border border-border btn-scale ${
                           account.enabled
                             ? 'hover:border-orange-500 dark:hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30'
                             : 'hover:border-green-500 dark:hover:border-green-400 hover:bg-green-50 dark:hover:bg-green-950/30'
@@ -619,7 +619,7 @@ export default function AccountsPanel({
                         variant="outline"
                         onClick={() => handleAction(account.id, () => onRefreshAccount(account.id))}
                         disabled={actionLoading[account.id] === 'refresh'}
-                        className="h-7 w-7 border border-gray-300 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
+                        className="h-7 w-7 border border-border hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
                         title="刷新账户信息"
                       >
                         {actionLoading[account.id] === 'refresh' ? (
