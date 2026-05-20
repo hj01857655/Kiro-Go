@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Card, CardContent } from './ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
 import { toast } from 'sonner'
-import { Upload, FileJson, Key, Loader2, Cloud, Building2, Cookie, HardDrive, Code, Globe } from 'lucide-react'
+import { Upload, Loader2, Cloud, Building2, Cookie, HardDrive, Code, Globe } from 'lucide-react'
 
 export default function AddAccountModal({ open, onOpenChange, password, onSuccess }) {
   const [activeTab, setActiveTab] = useState('builderid')
