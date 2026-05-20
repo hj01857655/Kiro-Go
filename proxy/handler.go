@@ -3557,6 +3557,33 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
+	// 检查配额使用率，自动禁用用完的账户
+	usageFields := parseUsageData(info.UsageData)
+	usagePercent := float64(0)
+	if percent, ok := usageFields["usagePercent"].(float64); ok {
+		usagePercent = percent
+	}
+
+	// 如果配额使用率 >= 99%，自动禁用账户（除非允许超额使用）
+	if usagePercent >= 0.99 && account.Enabled && !account.AllowOverage {
+		logger.Warnf("[AutoDisable] Account %s quota exhausted (%.1f%%), auto-disabling", account.Email, usagePercent*100)
+		if err := config.DisableAccount(id, fmt.Sprintf("Quota exhausted (%.1f%%)", usagePercent*100)); err != nil {
+			logger.Errorf("[AutoDisable] Failed to disable account %s: %v", account.Email, err)
+		} else {
+			config.AddAuditLog(config.AuditLog{
+				Action:  "account.auto_disable",
+				Level:   "warning",
+				User:    "system",
+				Message: fmt.Sprintf("Account auto-disabled due to quota exhaustion (%.1f%%)", usagePercent*100),
+				Target:  account.Email,
+				Metadata: map[string]interface{}{
+					"accountId":    id,
+					"usagePercent": usagePercent * 100,
+				},
+			})
+		}
+	}
+
 	// 重新加载 pool 以获取最新的运行时统计
 	h.pool.Reload()
 
