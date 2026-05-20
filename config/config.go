@@ -614,14 +614,21 @@ func IsApiKeyRequired() bool {
 	return cfg.RequireApiKey
 }
 
-func UpdateSettings(apiKey string, requireApiKey bool, password string) error {
+func UpdateSettings(host string, port int, apiKey string, requireApiKey bool, password string, proxyURL string) error {
 	cfgLock.Lock()
 	defer cfgLock.Unlock()
+	if host != "" {
+		cfg.Host = host
+	}
+	if port > 0 {
+		cfg.Port = port
+	}
 	cfg.ApiKey = apiKey
 	cfg.RequireApiKey = requireApiKey
 	if password != "" {
 		cfg.Password = password
 	}
+	cfg.ProxyURL = proxyURL
 	return Save()
 }
 

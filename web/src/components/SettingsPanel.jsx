@@ -179,9 +179,14 @@ export default function SettingsPanel({ password }) {
   return (
     <div className="flex flex-col gap-5">
       {/* 基础设置 */}
-      <Card>
+      <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
-          <CardTitle>基础设置</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center shadow-md">
+              <span className="text-white text-sm font-bold">基</span>
+            </div>
+            基础设置
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -193,6 +198,7 @@ export default function SettingsPanel({ password }) {
               value={settings.port}
               onChange={(e) => setSettings({ ...settings, port: parseInt(e.target.value) })}
             />
+            <p className="text-xs text-muted-foreground mt-1">修改后需要重启服务器</p>
           </div>
           <div>
             <Label htmlFor="host">服务器主机</Label>
@@ -203,6 +209,7 @@ export default function SettingsPanel({ password }) {
               value={settings.host}
               onChange={(e) => setSettings({ ...settings, host: e.target.value })}
             />
+            <p className="text-xs text-muted-foreground mt-1">修改后需要重启服务器（0.0.0.0 = 所有网卡，127.0.0.1 = 仅本地）</p>
           </div>
           <div>
             <Label htmlFor="password">管理员密码</Label>
@@ -237,9 +244,14 @@ export default function SettingsPanel({ password }) {
       </Card>
 
       {/* Proxy 设置 */}
-      <Card>
+      <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
-          <CardTitle>代理设置</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center shadow-md">
+              <span className="text-white text-sm font-bold">代</span>
+            </div>
+            代理设置
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div>
@@ -250,6 +262,7 @@ export default function SettingsPanel({ password }) {
               placeholder="http://127.0.0.1:7890"
               value={settings.proxyURL}
               onChange={(e) => setSettings({ ...settings, proxyURL: e.target.value })}
+              className="border-2 focus:border-green-500 dark:focus:border-green-400"
             />
             <p className="text-xs text-muted-foreground mt-1">为所有账户设置全局代理</p>
           </div>
@@ -257,9 +270,14 @@ export default function SettingsPanel({ password }) {
       </Card>
 
       {/* Thinking 配置 */}
-      <Card>
+      <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
-          <CardTitle>Thinking 配置</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-md">
+              <span className="text-white text-sm font-bold">T</span>
+            </div>
+            Thinking 配置
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -270,6 +288,7 @@ export default function SettingsPanel({ password }) {
               placeholder="-thinking"
               value={thinking.suffix}
               onChange={(e) => setThinking({ ...thinking, suffix: e.target.value })}
+              className="border-2 focus:border-purple-500 dark:focus:border-purple-400"
             />
             <p className="text-xs text-muted-foreground mt-1">添加到模型名称的后缀以启用thinking</p>
           </div>
@@ -311,9 +330,14 @@ export default function SettingsPanel({ password }) {
       </Card>
 
       {/* Endpoint 配置 */}
-      <Card>
+      <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
-          <CardTitle>端点设置</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-orange-600 to-red-600 flex items-center justify-center shadow-md">
+              <span className="text-white text-sm font-bold">端</span>
+            </div>
+            端点设置
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -346,9 +370,14 @@ export default function SettingsPanel({ password }) {
       </Card>
 
       {/* Prompt 过滤 */}
-      <Card>
+      <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
-          <CardTitle>Prompt 过滤</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-md">
+              <span className="text-white text-sm font-bold">过</span>
+            </div>
+            Prompt 过滤
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">
@@ -386,14 +415,19 @@ export default function SettingsPanel({ password }) {
       </Card>
 
       {/* 自定义过滤规则 */}
-      <Card>
+      <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
-          <CardTitle>自定义过滤规则</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-pink-600 to-rose-600 flex items-center justify-center shadow-md">
+              <span className="text-white text-sm font-bold">规</span>
+            </div>
+            自定义过滤规则
+          </CardTitle>
           <CardDescription>添加自定义的正则表达式或文本匹配规则</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {promptFilter.rules.map((rule, idx) => (
-            <Card key={idx} className="border-2">
+            <Card key={idx} className="border-2 border-border/50 glass">
               <CardContent className="pt-6 space-y-4">
                 <div>
                   <Label>规则类型</Label>
@@ -417,6 +451,7 @@ export default function SettingsPanel({ password }) {
                     placeholder={rule.type === 'regex' ? '正则表达式' : '要匹配的文本'}
                     value={rule.match}
                     onChange={(e) => updateRule(idx, 'match', e.target.value)}
+                    className="border-2 focus:border-pink-500 dark:focus:border-pink-400"
                   />
                 </div>
                 {rule.type === 'regex' && (
@@ -427,6 +462,7 @@ export default function SettingsPanel({ password }) {
                       placeholder="替换内容（留空表示删除）"
                       value={rule.replace || ''}
                       onChange={(e) => updateRule(idx, 'replace', e.target.value)}
+                      className="border-2 focus:border-pink-500 dark:focus:border-pink-400"
                     />
                   </div>
                 )}
@@ -434,6 +470,7 @@ export default function SettingsPanel({ password }) {
                   variant="destructive"
                   size="sm"
                   onClick={() => removeRule(idx)}
+                  className="shadow-sm hover:shadow-md"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   删除规则
@@ -441,7 +478,11 @@ export default function SettingsPanel({ password }) {
               </CardContent>
             </Card>
           ))}
-          <Button variant="outline" onClick={addRule}>
+          <Button 
+            variant="outline" 
+            onClick={addRule}
+            className="border-2 border-border hover:border-pink-500 dark:hover:border-pink-400"
+          >
             <Plus className="w-4 h-4 mr-2" />
             添加规则
           </Button>
@@ -450,10 +491,18 @@ export default function SettingsPanel({ password }) {
 
       {/* 保存按钮 */}
       <div className="flex gap-3 justify-end">
-        <Button variant="outline" onClick={loadSettings}>
+        <Button 
+          variant="outline" 
+          onClick={loadSettings}
+          className="border-2 border-border"
+        >
           重置
         </Button>
-        <Button onClick={saveSettings} disabled={saving}>
+        <Button 
+          onClick={saveSettings} 
+          disabled={saving}
+          className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-md hover:shadow-lg transition-all"
+        >
           {saving ? '保存中...' : '保存设置'}
         </Button>
       </div>
