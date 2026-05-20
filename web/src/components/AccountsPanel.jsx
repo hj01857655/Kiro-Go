@@ -6,7 +6,7 @@ import { Checkbox } from './ui/checkbox'
 import { Switch } from './ui/switch'
 import {
   RefreshCw, Trash2, Power, Plus, Search,
-  Eye, Loader2, Activity, Download,
+  Eye, Loader2, Activity, Download, Upload,
   Check, X, Copy, Mail, Clock, ChevronDown, ChevronUp,
   CheckCircle2, TrendingUp
 } from 'lucide-react'
@@ -14,6 +14,7 @@ import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { exportToJSON, exportToCSV, copyToClipboard } from '../lib/utils'
 import { toast } from 'sonner'
+import ImportAccountsModal from './ImportAccountsModal'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +62,7 @@ export default function AccountsPanel({
   const [sortBy, setSortBy] = useState('lastUsed')
   const [expandedCards, setExpandedCards] = useState({}) // 记录哪些卡片展开了用量详情
   const [overageLoading, setOverageLoading] = useState({})
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const toggleCardExpand = (id) => {
     setExpandedCards(prev => ({
@@ -216,6 +218,14 @@ export default function AccountsPanel({
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* 导入模态框 */}
+      <ImportAccountsModal
+        open={showImportModal}
+        onOpenChange={setShowImportModal}
+        password={password}
+        onSuccess={onRefresh}
+      />
+
       {/* 操作栏 */}
       <Card className="border-0 shadow-md glass">
         <CardContent className="pt-6">
@@ -263,6 +273,14 @@ export default function AccountsPanel({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <Button
+                  onClick={() => setShowImportModal(true)}
+                  variant="outline"
+                  className="border-2 border-border"
+                >
+                  <Upload className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">导入</span>
+                </Button>
                 <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 border-border btn-scale">
                   <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">刷新</span>
