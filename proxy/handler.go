@@ -3061,9 +3061,10 @@ func (h *Handler) apiGetStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiGetSettings(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"apiKey":         config.GetApiKey(),
-		"requireApiKey":  config.IsApiKeyRequired(),
+		"apiKeyRequired": config.IsApiKeyRequired(),
 		"port":           config.GetPort(),
 		"host":           config.GetHost(),
+		"proxyURL":       config.GetProxyURL(),
 		"allowOverUsage": config.GetAllowOverUsage(),
 	})
 }

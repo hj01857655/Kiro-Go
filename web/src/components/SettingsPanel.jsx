@@ -79,8 +79,8 @@ export default function SettingsPanel({ password }) {
       if (endpointRes.ok) {
         const data = await endpointRes.json()
         setEndpoint({
-          preferred: data.preferred || 'auto',
-          enableFallback: data.enableFallback !== false
+          preferred: data.preferredEndpoint || 'auto',
+          enableFallback: data.endpointFallback !== false
         })
       }
 
@@ -133,8 +133,8 @@ export default function SettingsPanel({ password }) {
           'X-Admin-Password': password
         },
         body: JSON.stringify({
-          preferred: endpoint.preferred === 'auto' ? '' : endpoint.preferred,
-          enableFallback: endpoint.enableFallback
+          preferredEndpoint: endpoint.preferred === 'auto' ? '' : endpoint.preferred,
+          endpointFallback: endpoint.enableFallback
         })
       })
 
