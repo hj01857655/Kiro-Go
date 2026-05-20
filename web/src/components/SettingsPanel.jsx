@@ -14,8 +14,6 @@ export default function SettingsPanel({ password }) {
     port: 8080,
     host: '127.0.0.1',
     password: '',
-    apiKey: '',
-    apiKeyRequired: false,
     proxyURL: ''
   })
 
@@ -53,8 +51,6 @@ export default function SettingsPanel({ password }) {
           port: data.port || 8080,
           host: data.host || '127.0.0.1',
           password: '',
-          apiKey: data.apiKey || '',
-          apiKeyRequired: data.apiKeyRequired || false,
           proxyURL: data.proxyURL || ''
         })
       }
@@ -220,25 +216,6 @@ export default function SettingsPanel({ password }) {
               value={settings.password}
               onChange={(e) => setSettings({ ...settings, password: e.target.value })}
             />
-          </div>
-          <div>
-            <Label htmlFor="apiKey">API密钥</Label>
-            <Input
-              id="apiKey"
-              type="text"
-              placeholder="可选的API密钥"
-              value={settings.apiKey}
-              onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-            />
-            <p className="text-xs text-muted-foreground mt-1">用于保护API访问</p>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="apiKeyRequired"
-              checked={settings.apiKeyRequired}
-              onCheckedChange={(checked) => setSettings({ ...settings, apiKeyRequired: checked })}
-            />
-            <Label htmlFor="apiKeyRequired" className="cursor-pointer">要求API密钥</Label>
           </div>
         </CardContent>
       </Card>
