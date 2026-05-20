@@ -140,7 +140,7 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
           <div>
             <Label>密钥 ID</Label>
             <div className="mt-2 p-3 bg-muted/50 rounded-lg">
-              <code className="text-sm font-mono text-muted-foreground">{apiKey.id}</code>
+              <code className="text-sm font-mono text-foreground">{apiKey.id}</code>
             </div>
           </div>
 
