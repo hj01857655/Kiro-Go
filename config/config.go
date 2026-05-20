@@ -355,7 +355,7 @@ func ValidateApiKeyHash(providedKey string) *ApiKey {
 func GenerateApiKey() string {
 	bytes := make([]byte, 32)
 	rand.Read(bytes)
-	return "kiro_" + hex.EncodeToString(bytes)
+	return "sk-" + hex.EncodeToString(bytes)
 }
 
 // AddApiKey creates a new API key
