@@ -5,8 +5,8 @@ import { Input } from './ui/input'
 import { Badge } from './ui/badge'
 import { ScrollArea } from './ui/scroll-area'
 import {
-  FileText, RefreshCw, Search, Filter, Clock,
-  CheckCircle2, XCircle, AlertCircle, Loader2
+  FileText, RefreshCw, Search, Clock,
+  CheckCircle2, XCircle, Activity, Zap
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -14,7 +14,7 @@ export default function LogsPanel({ password }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterLevel, setFilterLevel] = useState('all')
+  const [filterStatus, setFilterStatus] = useState('all')
 
   useEffect(() => {
     loadLogs()
@@ -23,7 +23,7 @@ export default function LogsPanel({ password }) {
   const loadLogs = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/admin/api/audit-logs', {
+      const res = await fetch('/admin/api/request-logs', {
         headers: { 'X-Admin-Password': password }
       })
       if (res.ok) {
@@ -51,30 +51,39 @@ export default function LogsPanel({ password }) {
     })
   }
 
-  const getLevelBadge = (level) => {
-    const variants = {
-      info: { color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700', icon: CheckCircle2 },
-      warn: { color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700', icon: AlertCircle },
-      error: { color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700', icon: XCircle }
+  const getStatusBadge = (success) => {
+    if (success) {
+      return (
+        <Badge className="text-xs border bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700">
+          <CheckCircle2 className="w-3 h-3 mr-1" />
+          成功
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge className="text-xs border bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700">
+          <XCircle className="w-3 h-3 mr-1" />
+          失败
+        </Badge>
+      )
     }
-    const variant = variants[level] || variants.info
-    const Icon = variant.icon
-    return (
-      <Badge className={`text-xs border ${variant.color}`}>
-        <Icon className="w-3 h-3 mr-1" />
-        {level.toUpperCase()}
-      </Badge>
-    )
   }
 
   const filteredLogs = logs.filter(log => {
     const matchesSearch = !searchTerm ||
-      log.action?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.user?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesLevel = filterLevel === 'all' || log.level === filterLevel
-    return matchesSearch && matchesLevel
+      log.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      log.accountEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      log.path?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      log.errorMessage?.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesStatus = filterStatus === 'all' ||
+      (filterStatus === 'success' && log.success) ||
+      (filterStatus === 'error' && !log.success)
+    return matchesSearch && matchesStatus
   })
+
+  const successCount = logs.filter(l => l.success).length
+  const errorCount = logs.filter(l => !l.success).length
+  const totalTokens = logs.reduce((sum, l) => sum + (l.inputTokens || 0) + (l.outputTokens || 0), 0)
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -87,7 +96,7 @@ export default function LogsPanel({ password }) {
                 <FileText className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">总日志数</p>
+                <p className="text-xs text-muted-foreground">总请求数</p>
                 <p className="text-xl font-bold">{logs.length}</p>
               </div>
             </div>
@@ -101,22 +110,8 @@ export default function LogsPanel({ password }) {
                 <CheckCircle2 className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">信息</p>
-                <p className="text-xl font-bold">{logs.filter(l => l.level === 'info').length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-md glass">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center shadow-md">
-                <AlertCircle className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">警告</p>
-                <p className="text-xl font-bold">{logs.filter(l => l.level === 'warn').length}</p>
+                <p className="text-xs text-muted-foreground">成功</p>
+                <p className="text-xl font-bold">{successCount}</p>
               </div>
             </div>
           </CardContent>
@@ -129,8 +124,22 @@ export default function LogsPanel({ password }) {
                 <XCircle className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">错误</p>
-                <p className="text-xl font-bold">{logs.filter(l => l.level === 'error').length}</p>
+                <p className="text-xs text-muted-foreground">失败</p>
+                <p className="text-xl font-bold">{errorCount}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-md glass">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
+                <Zap className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">总 Tokens</p>
+                <p className="text-xl font-bold">{totalTokens.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -144,7 +153,7 @@ export default function LogsPanel({ password }) {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="搜索操作、消息或用户..."
+                placeholder="搜索模型、账户、路径或错误信息..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 border-2"
@@ -152,36 +161,28 @@ export default function LogsPanel({ password }) {
             </div>
             <div className="flex gap-2">
               <Button
-                variant={filterLevel === 'all' ? 'default' : 'outline'}
+                variant={filterStatus === 'all' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setFilterLevel('all')}
+                onClick={() => setFilterStatus('all')}
                 className="border-2"
               >
                 全部
               </Button>
               <Button
-                variant={filterLevel === 'info' ? 'default' : 'outline'}
+                variant={filterStatus === 'success' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setFilterLevel('info')}
+                onClick={() => setFilterStatus('success')}
                 className="border-2"
               >
-                信息
+                成功
               </Button>
               <Button
-                variant={filterLevel === 'warn' ? 'default' : 'outline'}
+                variant={filterStatus === 'error' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setFilterLevel('warn')}
+                onClick={() => setFilterStatus('error')}
                 className="border-2"
               >
-                警告
-              </Button>
-              <Button
-                variant={filterLevel === 'error' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilterLevel('error')}
-                className="border-2"
-              >
-                错误
+                失败
               </Button>
               <Button
                 variant="outline"
@@ -191,7 +192,7 @@ export default function LogsPanel({ password }) {
                 className="border-2"
               >
                 {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Activity className="w-4 h-4 animate-spin" />
                 ) : (
                   <RefreshCw className="w-4 h-4" />
                 )}
@@ -206,18 +207,18 @@ export default function LogsPanel({ password }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5" />
-            审计日志
+            请求日志
           </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+              <Activity className="w-8 h-8 animate-spin text-purple-600" />
             </div>
           ) : filteredLogs.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-              <p className="text-muted-foreground">暂无日志记录</p>
+              <p className="text-muted-foreground">暂无请求记录</p>
             </div>
           ) : (
             <ScrollArea className="h-[600px] pr-4">
@@ -229,18 +230,50 @@ export default function LogsPanel({ password }) {
                   >
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="flex items-center gap-2">
-                        {getLevelBadge(log.level)}
-                        <span className="font-semibold text-sm">{log.action}</span>
+                        {getStatusBadge(log.success)}
+                        <Badge variant="outline" className="text-xs">
+                          {log.method}
+                        </Badge>
+                        <span className="font-semibold text-sm">{log.model}</span>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3" />
                         {formatDate(log.timestamp)}
                       </div>
                     </div>
-                    <p className="text-sm text-foreground mb-2">{log.message}</p>
+
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2">
+                      <span>路径: {log.path}</span>
+                      {log.accountEmail && <span>账户: {log.accountEmail}</span>}
+                      {log.stream !== undefined && (
+                        <span>{log.stream ? '流式' : '非流式'}</span>
+                      )}
+                    </div>
+
+                    {log.errorMessage && (
+                      <div className="mb-2 p-2 bg-red-100 dark:bg-red-900/20 rounded text-xs text-red-700 dark:text-red-300">
+                        错误: {log.errorMessage}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      {log.user && <span>用户: {log.user}</span>}
-                      {log.target && <span>目标: {log.target}</span>}
+                      {log.inputTokens > 0 && (
+                        <span>输入: {log.inputTokens.toLocaleString()} tokens</span>
+                      )}
+                      {log.outputTokens > 0 && (
+                        <span>输出: {log.outputTokens.toLocaleString()} tokens</span>
+                      )}
+                      {log.cacheCreationInputTokens > 0 && (
+                        <span className="text-blue-600 dark:text-blue-400">
+                          缓存创建: {log.cacheCreationInputTokens.toLocaleString()}
+                        </span>
+                      )}
+                      {log.cacheReadInputTokens > 0 && (
+                        <span className="text-green-600 dark:text-green-400">
+                          缓存读取: {log.cacheReadInputTokens.toLocaleString()}
+                        </span>
+                      )}
+                      {log.statusCode && <span>状态码: {log.statusCode}</span>}
                       {log.ipAddress && <span>IP: {log.ipAddress}</span>}
                     </div>
                   </div>

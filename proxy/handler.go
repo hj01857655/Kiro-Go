@@ -979,14 +979,14 @@ func (h *Handler) handleClaudeMessagesInternal(w http.ResponseWriter, r *http.Re
 
 	// Stream or non-stream
 	if req.Stream {
-		h.handleClaudeStream(w, account, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheUsage, cacheProfile)
+		h.handleClaudeStream(w, r, account, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheUsage, cacheProfile)
 	} else {
-		h.handleClaudeNonStream(w, account, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheUsage, cacheProfile)
+		h.handleClaudeNonStream(w, r, account, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheUsage, cacheProfile)
 	}
 }
 
 // handleClaudeStream Claude 流式响应
-func (h *Handler) handleClaudeStream(w http.ResponseWriter, account *config.Account, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheUsage promptCacheUsage, cacheProfile *promptCacheProfile) {
+func (h *Handler) handleClaudeStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheUsage promptCacheUsage, cacheProfile *promptCacheProfile) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1348,6 +1348,25 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, account *config.Acco
 		h.recordFailure()
 		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "quota"))
 		h.checkOverageError(err, account.ID)
+
+		// Log failed request
+		config.AddRequestLog(config.RequestLog{
+			Timestamp:    time.Now().UnixMilli(),
+			Method:       "POST",
+			Path:         "/v1/messages",
+			Model:        model,
+			AccountEmail: account.Email,
+			StatusCode:   500,
+			Success:      false,
+			ErrorMessage: err.Error(),
+			InputTokens:  estimatedInputTokens,
+			OutputTokens: 0,
+			Duration:     0,
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.Header.Get("User-Agent"),
+			Stream:       true,
+		})
+
 		h.sendSSE(w, flusher, "error", map[string]interface{}{
 			"type":  "error",
 			"error": map[string]string{"type": "api_error", "message": err.Error()},
@@ -1399,6 +1418,25 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, account *config.Acco
 
 	h.sendSSE(w, flusher, "message_stop", map[string]interface{}{
 		"type": "message_stop",
+	})
+
+	// Log request
+	config.AddRequestLog(config.RequestLog{
+		Timestamp:                time.Now().UnixMilli(),
+		Method:                   "POST",
+		Path:                     "/v1/messages",
+		Model:                    model,
+		AccountEmail:             account.Email,
+		StatusCode:               200,
+		Success:                  true,
+		InputTokens:              inputTokens,
+		OutputTokens:             outputTokens,
+		CacheCreationInputTokens: cacheUsage.CacheCreationInputTokens,
+		CacheReadInputTokens:     cacheUsage.CacheReadInputTokens,
+		Duration:                 0,
+		IPAddress:                r.RemoteAddr,
+		UserAgent:                r.Header.Get("User-Agent"),
+		Stream:                   true,
 	})
 }
 
@@ -1475,7 +1513,7 @@ func (h *Handler) checkOverageError(err error, accountID string) {
 }
 
 // handleClaudeNonStream Claude 非流式响应
-func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, account *config.Account, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheUsage promptCacheUsage, cacheProfile *promptCacheProfile) {
+func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheUsage promptCacheUsage, cacheProfile *promptCacheProfile) {
 	var content string
 	var thinkingContent string
 	var toolUses []KiroToolUse
@@ -1514,6 +1552,25 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, account *config.A
 		h.recordFailure()
 		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
 		h.checkOverageError(err, account.ID)
+
+		// Log failed request
+		config.AddRequestLog(config.RequestLog{
+			Timestamp:    time.Now().UnixMilli(),
+			Method:       "POST",
+			Path:         "/v1/messages",
+			Model:        model,
+			AccountEmail: account.Email,
+			StatusCode:   500,
+			Success:      false,
+			ErrorMessage: err.Error(),
+			InputTokens:  estimatedInputTokens,
+			OutputTokens: 0,
+			Duration:     0,
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.Header.Get("User-Agent"),
+			Stream:       false,
+		})
+
 		h.sendClaudeError(w, 500, "api_error", err.Error())
 		return
 	}
@@ -1571,6 +1628,25 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, account *config.A
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(resp)
+
+	// Log request
+	config.AddRequestLog(config.RequestLog{
+		Timestamp:                time.Now().UnixMilli(),
+		Method:                   "POST",
+		Path:                     "/v1/messages",
+		Model:                    model,
+		AccountEmail:             account.Email,
+		StatusCode:               200,
+		Success:                  true,
+		InputTokens:              inputTokens,
+		OutputTokens:             outputTokens,
+		CacheCreationInputTokens: cacheUsage.CacheCreationInputTokens,
+		CacheReadInputTokens:     cacheUsage.CacheReadInputTokens,
+		Duration:                 0,
+		IPAddress:                r.RemoteAddr,
+		UserAgent:                r.Header.Get("User-Agent"),
+		Stream:                   false,
+	})
 }
 
 func (h *Handler) sendClaudeError(w http.ResponseWriter, status int, errType, message string) {
@@ -1629,14 +1705,14 @@ func (h *Handler) handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 	kiroPayload := OpenAIToKiro(&req, thinking)
 
 	if req.Stream {
-		h.handleOpenAIStream(w, account, kiroPayload, req.Model, thinking, estimatedInputTokens)
+		h.handleOpenAIStream(w, r, account, kiroPayload, req.Model, thinking, estimatedInputTokens)
 	} else {
-		h.handleOpenAINonStream(w, account, kiroPayload, req.Model, thinking, estimatedInputTokens)
+		h.handleOpenAINonStream(w, r, account, kiroPayload, req.Model, thinking, estimatedInputTokens)
 	}
 }
 
 // handleOpenAIStream OpenAI 流式响应
-func (h *Handler) handleOpenAIStream(w http.ResponseWriter, account *config.Account, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int) {
+func (h *Handler) handleOpenAIStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1958,6 +2034,25 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, account *config.Acco
 		h.recordFailure()
 		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
 		h.checkOverageError(err, account.ID)
+
+		// Log failed request
+		config.AddRequestLog(config.RequestLog{
+			Timestamp:    time.Now().UnixMilli(),
+			Method:       "POST",
+			Path:         "/v1/chat/completions",
+			Model:        model,
+			AccountEmail: account.Email,
+			StatusCode:   500,
+			Success:      false,
+			ErrorMessage: err.Error(),
+			InputTokens:  estimatedInputTokens,
+			OutputTokens: 0,
+			Duration:     0,
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.Header.Get("User-Agent"),
+			Stream:       true,
+		})
+
 		return
 	}
 
@@ -2017,10 +2112,27 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, account *config.Acco
 	fmt.Fprintf(w, "data: %s\n\n", string(data))
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+
+	// Log request
+	config.AddRequestLog(config.RequestLog{
+		Timestamp:    time.Now().UnixMilli(),
+		Method:       "POST",
+		Path:         "/v1/chat/completions",
+		Model:        model,
+		AccountEmail: account.Email,
+		StatusCode:   200,
+		Success:      true,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		Duration:     0,
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.Header.Get("User-Agent"),
+		Stream:       true,
+	})
 }
 
 // handleOpenAINonStream OpenAI 非流式响应
-func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, account *config.Account, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int) {
+func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int) {
 	var content string
 	var reasoningContent string
 	var toolUses []KiroToolUse
@@ -2050,6 +2162,25 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, account *config.A
 		h.recordFailure()
 		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
 		h.checkOverageError(err, account.ID)
+
+		// Log failed request
+		config.AddRequestLog(config.RequestLog{
+			Timestamp:    time.Now().UnixMilli(),
+			Method:       "POST",
+			Path:         "/v1/chat/completions",
+			Model:        model,
+			AccountEmail: account.Email,
+			StatusCode:   500,
+			Success:      false,
+			ErrorMessage: err.Error(),
+			InputTokens:  estimatedInputTokens,
+			OutputTokens: 0,
+			Duration:     0,
+			IPAddress:    r.RemoteAddr,
+			UserAgent:    r.Header.Get("User-Agent"),
+			Stream:       false,
+		})
+
 		h.sendOpenAIError(w, 500, "server_error", err.Error())
 		return
 	}
@@ -2077,6 +2208,23 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, account *config.A
 	resp := KiroToOpenAIResponseWithReasoning(finalContent, reasoningContent, toolUses, inputTokens, outputTokens, model, thinkingFormat)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(resp)
+
+	// Log request
+	config.AddRequestLog(config.RequestLog{
+		Timestamp:    time.Now().UnixMilli(),
+		Method:       "POST",
+		Path:         "/v1/chat/completions",
+		Model:        model,
+		AccountEmail: account.Email,
+		StatusCode:   200,
+		Success:      true,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		Duration:     0,
+		IPAddress:    r.RemoteAddr,
+		UserAgent:    r.Header.Get("User-Agent"),
+		Stream:       false,
+	})
 }
 
 func (h *Handler) sendOpenAIError(w http.ResponseWriter, status int, errType, message string) {
@@ -2248,6 +2396,10 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiGetAuditLogs(w, r)
 	case path == "/audit-logs" && r.Method == "DELETE":
 		h.apiClearAuditLogs(w, r)
+	case path == "/request-logs" && r.Method == "GET":
+		h.apiGetRequestLogs(w, r)
+	case path == "/request-logs" && r.Method == "DELETE":
+		h.apiClearRequestLogs(w, r)
 	case path == "/version" && r.Method == "GET":
 		h.apiGetVersion(w, r)
 	case path == "/export" && r.Method == "POST":
@@ -4095,3 +4247,30 @@ func (h *Handler) apiClearAuditLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // ==================== End Audit Logs API ====================
+
+// ==================== Request Logs API ====================
+
+func (h *Handler) apiGetRequestLogs(w http.ResponseWriter, r *http.Request) {
+	logs := config.GetRequestLogs()
+	json.NewEncoder(w).Encode(logs)
+}
+
+func (h *Handler) apiClearRequestLogs(w http.ResponseWriter, r *http.Request) {
+	if err := config.ClearRequestLogs(); err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Log the clear action
+	config.AddAuditLog(config.AuditLog{
+		Action:  "requestlogs.clear",
+		Level:   "warning",
+		User:    "admin",
+		Message: "Request logs cleared",
+	})
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// ==================== End Request Logs API ====================

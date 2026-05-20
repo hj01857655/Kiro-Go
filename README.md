@@ -18,6 +18,10 @@ If this project helps you, a Star would mean a lot.
 - Multiple auth: AWS Builder ID, IAM Identity Center (Enterprise SSO), SSO Token, local cache, credentials JSON
 - Usage tracking, account import/export, i18n (CN / EN)
 - Support configuring outbound proxy (SOCKS5 / HTTP)
+- API key management with priority and weight-based load balancing
+- Request logs with cache tracking (up to 10000 entries)
+- Audit logs for admin operations
+- Prompt cache tracking and optimization
 
 ## Quick Start
 
@@ -91,6 +95,10 @@ The setting takes effect immediately without restarting.
 ## Contributing
 
 Friendly discussion is welcome. If you run into issues, try asking Claude Code, Codex, or similar tools for help first — most problems can be solved that way. PRs are even better.
+
+## Acknowledgments
+
+This project is forked from [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go). Special thanks to the original author for creating the foundational Kiro API proxy service.
 
 ## Friend Links
 

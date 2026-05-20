@@ -18,6 +18,10 @@
 - 多种认证方式：AWS Builder ID、IAM Identity Center (企业 SSO)、SSO Token、本地缓存、凭证 JSON
 - 用量追踪、账号导入导出、中英双语
 - 支持设置出站代理（SOCKS5 / HTTP）
+- API 密钥管理，支持优先级和权重负载均衡
+- 请求日志记录，支持缓存追踪（最多 10000 条）
+- 管理操作审计日志
+- Prompt 缓存追踪与优化
 
 ## 快速开始
 
@@ -91,6 +95,10 @@ curl http://localhost:8080/v1/chat/completions \
 ## 参与贡献
 
 欢迎友好交流。遇到问题时，建议先让 Claude Code、Codex 等工具帮忙排查一下，大部分问题都能自己解决。如果能直接提个 PR 就更好了。
+
+## 致谢
+
+本项目 fork 自 [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go)。特别感谢原作者创建的基础 Kiro API 代理服务。
 
 ## 友情链接
 

@@ -126,6 +126,27 @@ type AuditLog struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`  // Additional context data
 }
 
+// RequestLog represents a single API request log entry.
+type RequestLog struct {
+	ID                        string `json:"id"`                                // Unique log entry identifier (UUID)
+	Timestamp                 int64  `json:"timestamp"`                         // Unix timestamp when request occurred
+	Method                    string `json:"method"`                            // HTTP method (POST)
+	Path                      string `json:"path"`                              // Request path (/v1/messages or /v1/chat/completions)
+	Model                     string `json:"model"`                             // Model name requested
+	AccountEmail              string `json:"accountEmail,omitempty"`            // Account email used for the request
+	StatusCode                int    `json:"statusCode"`                        // HTTP status code
+	Success                   bool   `json:"success"`                           // Whether request succeeded
+	ErrorMessage              string `json:"errorMessage,omitempty"`            // Error message if failed
+	InputTokens               int    `json:"inputTokens,omitempty"`             // Input tokens count
+	OutputTokens              int    `json:"outputTokens,omitempty"`            // Output tokens count
+	CacheCreationInputTokens  int    `json:"cacheCreationInputTokens,omitempty"` // Cache creation tokens
+	CacheReadInputTokens      int    `json:"cacheReadInputTokens,omitempty"`    // Cache read tokens
+	Duration                  int64  `json:"duration"`                          // Request duration in milliseconds
+	IPAddress                 string `json:"ipAddress,omitempty"`               // Client IP address
+	UserAgent                 string `json:"userAgent,omitempty"`               // User agent string
+	Stream                    bool   `json:"stream"`                            // Whether request was streaming
+}
+
 // Config represents the global application configuration.
 type Config struct {
 	// Server settings
@@ -140,6 +161,7 @@ type Config struct {
 	Accounts      []Account `json:"accounts"` // Registered Kiro accounts
 	ApiKeys       []ApiKey  `json:"apiKeys,omitempty"` // Managed API keys for programmatic access
 	AuditLogs     []AuditLog `json:"-"` // Audit logs (in-memory only, not persisted to config file)
+	RequestLogs   []RequestLog `json:"-"` // Request logs (in-memory only, not persisted to config file)
 
 	// Thinking mode configuration for extended reasoning output
 	ThinkingSuffix       string `json:"thinkingSuffix,omitempty"`       // Model suffix to trigger thinking mode (default: "-thinking")
@@ -212,6 +234,7 @@ var (
 	cfgLock     sync.RWMutex
 	cfgPath     string
 	auditLogPath string
+	requestLogPath string
 )
 
 // Init initializes the configuration system with the specified file path.
@@ -221,6 +244,7 @@ func Init(path string) error {
 	// Set audit log path to data/audit.log
 	dir := filepath.Dir(path)
 	auditLogPath = filepath.Join(dir, "audit.log")
+	requestLogPath = filepath.Join(dir, "request.log")
 	return Load()
 }
 
@@ -474,6 +498,65 @@ func ClearAuditLogs() error {
 }
 
 // ==================== End Audit Logs Management ====================
+
+// ==================== Request Logs Management ====================
+
+// GetRequestLogs reads request logs from request.log file (up to 10000 most recent entries)
+func GetRequestLogs() []RequestLog {
+	var logs []RequestLog
+	file, err := os.Open(requestLogPath)
+	if err != nil {
+		return logs
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var log RequestLog
+		if err := json.Unmarshal(scanner.Bytes(), &log); err == nil {
+			logs = append(logs, log)
+		}
+		if len(logs) >= 10000 {
+			break
+		}
+	}
+	return logs
+}
+
+// AddRequestLog adds a new request log entry to request.log file
+func AddRequestLog(log RequestLog) error {
+	// Generate ID if not provided
+	if log.ID == "" {
+		log.ID = GenerateMachineId()
+	}
+
+	// Set timestamp if not provided
+	if log.Timestamp == 0 {
+		log.Timestamp = time.Now().UnixMilli()
+	}
+
+	// Append to request log file
+	file, err := os.OpenFile(requestLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+
+	_, err = file.Write(append(data, '\n'))
+	return err
+}
+
+// ClearRequestLogs removes the request log file
+func ClearRequestLogs() error {
+	return os.Remove(requestLogPath)
+}
+
+// ==================== End Request Logs Management ====================
 
 func GetPort() int {
 	cfgLock.RLock()
