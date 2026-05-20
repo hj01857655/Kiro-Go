@@ -22,6 +22,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // GenerateMachineId generates a UUID v4 format machine identifier.
@@ -150,9 +152,9 @@ type RequestLog struct {
 // Config represents the global application configuration.
 type Config struct {
 	// Server settings
-	Password      string    `json:"password"`         // Admin panel password
+	Password      string    `json:"password"`         // Admin panel password (bcrypt hash)
 	Port          int       `json:"port"`             // HTTP server port (default: 8080)
-	Host          string    `json:"host"`             // HTTP server bind address (default: 0.0.0.0)
+	Host          string    `json:"host"`             // HTTP server bind address (default: 127.0.0.1)
 	ApiKey        string    `json:"apiKey,omitempty"` // API key for client authentication
 	RequireApiKey bool      `json:"requireApiKey"`    // Whether to enforce API key validation
 	KiroVersion   string    `json:"kiroVersion,omitempty"`
@@ -287,12 +289,55 @@ func Save() error {
 	return os.WriteFile(cfgPath, data, 0600)
 }
 
-// SetPassword updates the admin password.
+// SetPassword updates the admin password with bcrypt hashing.
 // Primarily used for environment variable override in containerized deployments.
-func SetPassword(password string) {
+func SetPassword(password string) error {
+	if password == "" {
+		cfgLock.Lock()
+		defer cfgLock.Unlock()
+		cfg.Password = ""
+		return nil
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
 	cfgLock.Lock()
 	defer cfgLock.Unlock()
-	cfg.Password = password
+	cfg.Password = string(hash)
+	return nil
+}
+
+// VerifyPassword checks if the provided password matches the stored hash.
+func VerifyPassword(password string) bool {
+	cfgLock.RLock()
+	storedHash := cfg.Password
+	cfgLock.RUnlock()
+
+	if storedHash == "" {
+		return password == ""
+	}
+
+	// Check if it's a bcrypt hash (starts with $2a$, $2b$, or $2y$)
+	if len(storedHash) > 4 && storedHash[0] == '$' && storedHash[1] == '2' {
+		err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
+		return err == nil
+	}
+
+	// Legacy plaintext comparison - migrate to hash
+	if storedHash == password {
+		// Migrate to bcrypt hash
+		go func() {
+			if err := SetPassword(password); err == nil {
+				Save()
+			}
+		}()
+		return true
+	}
+
+	return false
 }
 
 func Get() *Config {
@@ -709,7 +754,11 @@ func UpdateSettings(host string, port int, apiKey string, requireApiKey bool, pa
 	cfg.ApiKey = apiKey
 	cfg.RequireApiKey = requireApiKey
 	if password != "" {
-		cfg.Password = password
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		cfg.Password = string(hash)
 	}
 	cfg.ProxyURL = proxyURL
 	return Save()
@@ -727,7 +776,11 @@ func UpdateBasicSettings(host string, port int, password string, proxyURL string
 		cfg.Port = port
 	}
 	if password != "" {
-		cfg.Password = password
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		cfg.Password = string(hash)
 	}
 	cfg.ProxyURL = proxyURL
 	return Save()

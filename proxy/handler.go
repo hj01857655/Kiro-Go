@@ -2285,6 +2285,26 @@ func (h *Handler) ensureValidToken(account *config.Account) error {
 // ==================== 管理 API ====================
 
 func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
+	// CORS for admin endpoints - restrict to localhost only
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		// Only allow localhost origins
+		if strings.HasPrefix(origin, "http://localhost:") ||
+		   strings.HasPrefix(origin, "http://127.0.0.1:") ||
+		   strings.HasPrefix(origin, "https://localhost:") ||
+		   strings.HasPrefix(origin, "https://127.0.0.1:") {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Password")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+	}
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(204)
+		return
+	}
+
 	// 验证密码
 	password := r.Header.Get("X-Admin-Password")
 	if password == "" {
@@ -2294,7 +2314,9 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if password != config.GetPassword() {
+	if !config.VerifyPassword(password) {
+		// 添加延迟防止暴力破解
+		time.Sleep(2 * time.Second)
 		w.WriteHeader(401)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
 		return
@@ -2441,6 +2463,12 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// 判断账户状态：启用 + 有token + 未被ban = online
+		status := "offline"
+		if a.Enabled && a.AccessToken != "" && a.BanStatus == "" {
+			status = "online"
+		}
+
 		result[i] = map[string]interface{}{
 			"id":            a.ID,
 			"email":         a.Email,
@@ -2450,6 +2478,7 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 			"provider":      a.Provider,
 			"region":        a.Region,
 			"enabled":       a.Enabled,
+			"status":        status,
 			"banStatus":     a.BanStatus,
 			"banReason":     a.BanReason,
 			"banTime":       a.BanTime,
@@ -3220,11 +3249,19 @@ func (h *Handler) apiGetStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) apiGetSettings(w http.ResponseWriter, r *http.Request) {
+	// 返回掩码密码（如果有密码）
+	password := config.GetPassword()
+	maskedPassword := ""
+	if password != "" {
+		maskedPassword = "********"
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"apiKey":         config.GetApiKey(),
 		"apiKeyRequired": config.IsApiKeyRequired(),
 		"port":           config.GetPort(),
 		"host":           config.GetHost(),
+		"password":       maskedPassword,
 		"proxyURL":       config.GetProxyURL(),
 		"allowOverUsage": config.GetAllowOverUsage(),
 	})
@@ -3275,7 +3312,6 @@ func (h *Handler) apiUpdatePromptFilter(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Host           string `json:"host"`
 		Port           int    `json:"port"`
 		Password       string `json:"password"`
 		ProxyURL       string `json:"proxyURL"`
@@ -3287,7 +3323,8 @@ func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := config.UpdateBasicSettings(req.Host, req.Port, req.Password, req.ProxyURL); err != nil {
+	// Host 固定为 127.0.0.1，不允许修改
+	if err := config.UpdateBasicSettings("127.0.0.1", req.Port, req.Password, req.ProxyURL); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -3309,7 +3346,6 @@ func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		User:    "admin",
 		Message: "Settings updated",
 		Metadata: map[string]interface{}{
-			"host":           req.Host,
 			"port":           req.Port,
 			"allowOverUsage": req.AllowOverUsage,
 		},
@@ -3564,6 +3600,12 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 		}
 	}
 
+	// 判断账户状态：启用 + 有token + 未被ban = online
+	status := "offline"
+	if fullAccount.Enabled && fullAccount.AccessToken != "" && fullAccount.BanStatus == "" {
+		status = "online"
+	}
+
 	// 返回完整的账户数据（与 apiGetAccounts 格式一致）
 	result := map[string]interface{}{
 		"id":            fullAccount.ID,
@@ -3574,6 +3616,7 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 		"provider":      fullAccount.Provider,
 		"region":        fullAccount.Region,
 		"enabled":       fullAccount.Enabled,
+		"status":        status,
 		"banStatus":     fullAccount.BanStatus,
 		"banReason":     fullAccount.BanReason,
 		"banTime":       fullAccount.BanTime,
@@ -4338,13 +4381,25 @@ func (h *Handler) apiGetRequestLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if pageSizeStr != "" {
-		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 500 {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps >= 0 {
 			pageSize = ps
 		}
 	}
 
 	allLogs := config.GetRequestLogs()
 	total := len(allLogs)
+
+	// pageSize 为 0 表示返回全部
+	if pageSize == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs":     allLogs,
+			"total":    total,
+			"page":     1,
+			"pageSize": total,
+			"pages":    1,
+		})
+		return
+	}
 
 	// 计算分页
 	start := (page - 1) * pageSize

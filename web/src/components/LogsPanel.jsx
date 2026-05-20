@@ -8,7 +8,7 @@ import {
   FileText, RefreshCw, Clock,
   CheckCircle2, XCircle, Activity, Zap,
   User, Globe, ArrowUpCircle, ArrowDownCircle,
-  Database, Sparkles, Trash2
+  Database, Sparkles, Trash2, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -19,20 +19,26 @@ export default function LogsPanel({ password }) {
   const [filterModel, setFilterModel] = useState('all')
   const [filterAccount, setFilterAccount] = useState('all')
   const [sortBy, setSortBy] = useState('time-desc')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
 
   useEffect(() => {
     loadLogs()
-  }, [])
+  }, [page, pageSize])
 
   const loadLogs = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/admin/api/request-logs', {
+      const res = await fetch(`/admin/api/request-logs?page=${page}&pageSize=${pageSize}`, {
         headers: { 'X-Admin-Password': password }
       })
       if (res.ok) {
         const data = await res.json()
         setLogs(data.logs || [])
+        setTotal(data.total || 0)
+        setTotalPages(data.pages || 0)
       } else {
         toast.error('加载日志失败')
       }
@@ -41,6 +47,11 @@ export default function LogsPanel({ password }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const refreshAll = () => {
+    loadLogs()
+    loadStats()
   }
 
   const clearLogs = async () => {
@@ -54,6 +65,10 @@ export default function LogsPanel({ password }) {
       })
       if (res.ok) {
         setLogs([])
+        setStats({ totalRequests: 0, successCount: 0, errorCount: 0, totalTokens: 0 })
+        setTotal(0)
+        setTotalPages(0)
+        setPage(1)
         toast.success('日志已清空')
       } else {
         toast.error('清空日志失败')
@@ -61,6 +76,12 @@ export default function LogsPanel({ password }) {
     } catch (e) {
       toast.error('清空日志失败')
     }
+  }
+
+  const formatNumber = (num) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
+    return num.toString()
   }
 
   const formatDate = (timestamp) => {
@@ -133,9 +154,38 @@ export default function LogsPanel({ password }) {
   const uniqueModels = [...new Set(logs.map(l => l.model).filter(Boolean))]
   const uniqueAccounts = [...new Set(logs.map(l => l.accountEmail).filter(Boolean))]
 
-  const successCount = logs.filter(l => l.success).length
-  const errorCount = logs.filter(l => !l.success).length
-  const totalTokens = logs.reduce((sum, l) => sum + (l.inputTokens || 0) + (l.outputTokens || 0), 0)
+  // 统计数据需要基于所有日志，而不是当前页
+  const [stats, setStats] = useState({
+    totalRequests: 0,
+    successCount: 0,
+    errorCount: 0,
+    totalTokens: 0
+  })
+
+  // 加载统计数据（获取所有日志进行统计）
+  const loadStats = async () => {
+    try {
+      const res = await fetch('/admin/api/request-logs?pageSize=10000', {
+        headers: { 'X-Admin-Password': password }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const allLogs = data.logs || []
+        setStats({
+          totalRequests: data.total || 0,
+          successCount: allLogs.filter(l => l.success).length,
+          errorCount: allLogs.filter(l => !l.success).length,
+          totalTokens: allLogs.reduce((sum, l) => sum + (l.inputTokens || 0) + (l.outputTokens || 0), 0)
+        })
+      }
+    } catch (e) {
+      console.error('Failed to load stats:', e)
+    }
+  }
+
+  useEffect(() => {
+    loadStats()
+  }, [])
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -149,7 +199,7 @@ export default function LogsPanel({ password }) {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">总请求数</p>
-                <p className="text-xl font-bold">{logs.length}</p>
+                <p className="text-xl font-bold">{stats.totalRequests}</p>
               </div>
             </div>
           </CardContent>
@@ -163,7 +213,7 @@ export default function LogsPanel({ password }) {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">成功</p>
-                <p className="text-xl font-bold">{successCount}</p>
+                <p className="text-xl font-bold">{stats.successCount}</p>
               </div>
             </div>
           </CardContent>
@@ -177,7 +227,7 @@ export default function LogsPanel({ password }) {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">失败</p>
-                <p className="text-xl font-bold">{errorCount}</p>
+                <p className="text-xl font-bold">{stats.errorCount}</p>
               </div>
             </div>
           </CardContent>
@@ -191,7 +241,7 @@ export default function LogsPanel({ password }) {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">总 Tokens</p>
-                <p className="text-xl font-bold">{totalTokens.toLocaleString()}</p>
+                <p className="text-xl font-bold">{formatNumber(stats.totalTokens)}</p>
               </div>
             </div>
           </CardContent>
@@ -268,7 +318,7 @@ export default function LogsPanel({ password }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadLogs}
+                onClick={refreshAll}
                 disabled={loading}
                 className="border-2"
               >
@@ -383,7 +433,7 @@ export default function LogsPanel({ password }) {
                         <div className="flex items-center gap-1.5 px-2 py-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-md">
                           <ArrowUpCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                           <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                            {log.inputTokens.toLocaleString()}
+                            {formatNumber(log.inputTokens)}
                           </span>
                         </div>
                       )}
@@ -391,7 +441,7 @@ export default function LogsPanel({ password }) {
                         <div className="flex items-center gap-1.5 px-2 py-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-md">
                           <ArrowDownCircle className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                           <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
-                            {log.outputTokens.toLocaleString()}
+                            {formatNumber(log.outputTokens)}
                           </span>
                         </div>
                       )}
@@ -399,7 +449,7 @@ export default function LogsPanel({ password }) {
                         <div className="flex items-center gap-1.5 px-2 py-1.5 bg-cyan-100 dark:bg-cyan-900/30 rounded-md">
                           <Database className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
                           <span className="text-xs font-medium text-cyan-700 dark:text-cyan-300">
-                            创建 {log.cacheCreationInputTokens.toLocaleString()}
+                            创建 {formatNumber(log.cacheCreationInputTokens)}
                           </span>
                         </div>
                       )}
@@ -407,7 +457,7 @@ export default function LogsPanel({ password }) {
                         <div className="flex items-center gap-1.5 px-2 py-1.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-md">
                           <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                           <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                            读取 {log.cacheReadInputTokens.toLocaleString()}
+                            读取 {formatNumber(log.cacheReadInputTokens)}
                           </span>
                         </div>
                       )}
@@ -419,6 +469,63 @@ export default function LogsPanel({ password }) {
           )}
         </CardContent>
       </Card>
+
+      {/* 分页控件 */}
+      {totalPages > 1 && (
+        <Card className="border-0 shadow-md glass">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-muted-foreground">
+                共 {total} 条记录，第 {page}/{totalPages} 页
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1 || loading}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (page <= 3) {
+                      pageNum = i + 1
+                    } else if (page >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = page - 2 + i
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={page === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setPage(pageNum)}
+                        disabled={loading}
+                        className={page === pageNum ? "bg-gradient-to-r from-purple-600 to-pink-600" : ""}
+                      >
+                        {pageNum}
+                      </Button>
+                    )
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages || loading}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

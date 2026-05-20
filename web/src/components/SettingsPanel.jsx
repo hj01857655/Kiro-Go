@@ -50,7 +50,7 @@ export default function SettingsPanel({ password }) {
         setSettings({
           port: data.port || 8080,
           host: data.host || '127.0.0.1',
-          password: '',
+          password: data.password || '',
           proxyURL: data.proxyURL || ''
         })
       }
@@ -197,25 +197,23 @@ export default function SettingsPanel({ password }) {
             <p className="text-xs text-muted-foreground mt-1">修改后需要重启服务器</p>
           </div>
           <div>
-            <Label htmlFor="host">服务器主机</Label>
-            <Input
-              id="host"
-              type="text"
-              placeholder="127.0.0.1"
-              value={settings.host}
-              onChange={(e) => setSettings({ ...settings, host: e.target.value })}
-            />
-            <p className="text-xs text-muted-foreground mt-1">修改后需要重启服务器（0.0.0.0 = 所有网卡，127.0.0.1 = 仅本地）</p>
-          </div>
-          <div>
             <Label htmlFor="password">管理员密码</Label>
             <Input
               id="password"
               type="password"
-              placeholder="留空表示不修改"
-              value={settings.password}
+              placeholder={settings.password === '********' ? '留空保持不变，输入新密码修改' : '设置管理员密码'}
+              value={settings.password === '********' ? '' : settings.password}
               onChange={(e) => setSettings({ ...settings, password: e.target.value })}
+              onFocus={(e) => {
+                // 点击时如果是掩码，清空让用户输入新密码
+                if (settings.password === '********') {
+                  setSettings({ ...settings, password: '' })
+                }
+              }}
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              {settings.password === '********' ? '当前已设置密码，留空保持不变' : '留空表示不修改'}
+            </p>
           </div>
         </CardContent>
       </Card>

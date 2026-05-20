@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
+import { Button } from './ui/button'
 import {
   Users, Key, Activity, TrendingUp, CheckCircle2, XCircle,
-  ArrowUpCircle, ArrowDownCircle, Zap, Clock, Globe, Package
+  ArrowUpCircle, ArrowDownCircle, Zap, Clock, Globe, Package,
+  Database, Sparkles, RefreshCw, User
 } from 'lucide-react'
 
 export default function DashboardPanel({ password, accounts, apiKeys }) {
@@ -13,6 +15,8 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
     failedRequests: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     recentLogs: []
   })
   const [version, setVersion] = useState('')
@@ -21,11 +25,18 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
   useEffect(() => {
     loadStats()
     loadVersion()
+
+    // 每30秒自动刷新统计数据
+    const interval = setInterval(() => {
+      loadStats()
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
 
   const loadStats = async () => {
     try {
-      const res = await fetch('/admin/api/request-logs?pageSize=100', {
+      const res = await fetch('/admin/api/request-logs?pageSize=0', {
         headers: { 'X-Admin-Password': password }
       })
       if (res.ok) {
@@ -36,14 +47,21 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
         const failedCount = logs.filter(l => !l.success).length
         const totalInput = logs.reduce((sum, l) => sum + (l.inputTokens || 0), 0)
         const totalOutput = logs.reduce((sum, l) => sum + (l.outputTokens || 0), 0)
+        const cacheCreation = logs.reduce((sum, l) => sum + (l.cacheCreationInputTokens || 0), 0)
+        const cacheRead = logs.reduce((sum, l) => sum + (l.cacheReadInputTokens || 0), 0)
+
+        // 按时间戳降序排序，取最新的5条
+        const sortedLogs = [...logs].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
 
         setStats({
-          totalRequests: logs.length,
+          totalRequests: data.total || 0,
           successRequests: successCount,
           failedRequests: failedCount,
           totalInputTokens: totalInput,
           totalOutputTokens: totalOutput,
-          recentLogs: logs.slice(0, 5)
+          cacheCreationTokens: cacheCreation,
+          cacheReadTokens: cacheRead,
+          recentLogs: sortedLogs.slice(0, 5)
         })
       }
     } catch (e) {
@@ -168,7 +186,7 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Token 使用</p>
                 <p className="text-3xl font-bold">{formatNumber(stats.totalInputTokens + stats.totalOutputTokens)}</p>
-                <div className="flex gap-2 mt-2">
+                <div className="flex gap-2 mt-2 flex-wrap">
                   <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
                     <ArrowUpCircle className="w-3 h-3 mr-1" />
                     {formatNumber(stats.totalInputTokens)}
@@ -177,6 +195,18 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
                     <ArrowDownCircle className="w-3 h-3 mr-1" />
                     {formatNumber(stats.totalOutputTokens)}
                   </Badge>
+                  {stats.cacheCreationTokens > 0 && (
+                    <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700">
+                      <Database className="w-3 h-3 mr-1" />
+                      {formatNumber(stats.cacheCreationTokens)}
+                    </Badge>
+                  )}
+                  {stats.cacheReadTokens > 0 && (
+                    <Badge variant="outline" className="text-xs bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700">
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      {formatNumber(stats.cacheReadTokens)}
+                    </Badge>
+                  )}
                 </div>
               </div>
               <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg">
@@ -265,34 +295,133 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
       {/* 最近活动 */}
       <Card className="border-0 shadow-lg glass">
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Clock className="w-5 h-5" />
-            最近活动
+          <CardTitle className="text-lg flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5" />
+              最近活动
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadStats}
+              disabled={loading}
+              className="h-8 w-8 p-0"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent>
           {stats.recentLogs.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">暂无活动记录</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {stats.recentLogs.map((log, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {log.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{log.model || 'Unknown'}</p>
-                      <p className="text-xs text-muted-foreground truncate">{log.accountEmail || 'Unknown'}</p>
+                <div
+                  key={idx}
+                  className={`p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                    log.success
+                      ? 'bg-gradient-to-br from-green-50/50 to-emerald-50/30 dark:from-green-950/20 dark:to-emerald-950/10 border-green-200 dark:border-green-800/50'
+                      : 'bg-gradient-to-br from-red-50/50 to-rose-50/30 dark:from-red-950/20 dark:to-rose-950/10 border-red-200 dark:border-red-800/50'
+                  }`}
+                >
+                  {/* 第一行：状态、模型、方法、状态码 */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {log.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      )}
+                      <Badge className="text-xs font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0">
+                        {log.model || 'Unknown'}
+                      </Badge>
+                      {log.method && (
+                        <Badge variant="outline" className="text-xs font-mono">
+                          {log.method}
+                        </Badge>
+                      )}
+                      {log.statusCode && (
+                        <Badge variant="outline" className={`text-xs font-mono ${
+                          log.statusCode === 200
+                            ? 'border-green-500 text-green-700 dark:text-green-400'
+                            : 'border-red-500 text-red-700 dark:text-red-400'
+                        }`}>
+                          {log.statusCode}
+                        </Badge>
+                      )}
+                      {log.stream !== undefined && (
+                        <Badge variant="outline" className="text-xs">
+                          {log.stream ? '🌊' : '📦'}
+                        </Badge>
+                      )}
                     </div>
+                    <span className="text-xs text-muted-foreground font-mono">{formatDate(log.timestamp)}</span>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <Badge variant="outline" className="text-xs">
-                      {(log.inputTokens || 0) + (log.outputTokens || 0)} tokens
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">{formatDate(log.timestamp)}</span>
+
+                  {/* 第二行：账户和路径 */}
+                  <div className="flex items-center gap-3 mb-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5" />
+                      <span className="truncate max-w-[200px]">{log.accountEmail || 'Unknown'}</span>
+                    </div>
+                    {log.path && (
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5" />
+                        <span className="font-mono truncate max-w-[300px]">{log.path}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 错误信息 */}
+                  {log.errorMessage && (
+                    <div className="mb-2 p-2 bg-red-100 dark:bg-red-900/30 rounded-lg border border-red-300 dark:border-red-800">
+                      <p className="text-xs text-red-700 dark:text-red-300 truncate">{log.errorMessage}</p>
+                    </div>
+                  )}
+
+                  {/* Token 统计 */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {log.inputTokens > 0 && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded-md">
+                        <ArrowUpCircle className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                        <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                          {formatNumber(log.inputTokens)}
+                        </span>
+                      </div>
+                    )}
+                    {log.outputTokens > 0 && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-900/30 rounded-md">
+                        <ArrowDownCircle className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
+                          {formatNumber(log.outputTokens)}
+                        </span>
+                      </div>
+                    )}
+                    {log.cacheCreationInputTokens > 0 && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-cyan-100 dark:bg-cyan-900/30 rounded-md">
+                        <Database className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
+                        <span className="text-xs font-medium text-cyan-700 dark:text-cyan-300">
+                          {formatNumber(log.cacheCreationInputTokens)}
+                        </span>
+                      </div>
+                    )}
+                    {log.cacheReadInputTokens > 0 && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 rounded-md">
+                        <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                          {formatNumber(log.cacheReadInputTokens)}
+                        </span>
+                      </div>
+                    )}
+                    {log.duration && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-gray-900/30 rounded-md">
+                        <Clock className="w-3 h-3 text-gray-600 dark:text-gray-400" />
+                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                          {log.duration}ms
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

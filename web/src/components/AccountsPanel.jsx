@@ -221,6 +221,12 @@ export default function AccountsPanel({
     })
   }
 
+  const formatNumber = (num) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
+    return num.toString()
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* 导入模态框 */}
@@ -516,7 +522,7 @@ export default function AccountsPanel({
                         <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded px-1 py-0.5 border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
                           <TrendingUp className="w-2 h-2 text-blue-600 dark:text-blue-400" />
                           <span className="text-xs text-blue-700 dark:text-blue-300">请求</span>
-                          <span className="text-xs font-bold text-blue-900 dark:text-blue-100">{account.requestCount || 0}</span>
+                          <span className="text-xs font-bold text-blue-900 dark:text-blue-100">{formatNumber(account.requestCount || 0)}</span>
                         </div>
 
                         <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/30 rounded px-1 py-0.5 border border-purple-200 dark:border-purple-800 flex items-center gap-0.5">

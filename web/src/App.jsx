@@ -8,6 +8,7 @@ import DashboardPanel from './components/DashboardPanel'
 import AccountsPanel from './components/AccountsPanel'
 import ApiKeysPanel from './components/ApiKeysPanel'
 import LogsPanel from './components/LogsPanel'
+import AuditLogsPanel from './components/AuditLogsPanel'
 import SettingsPanel from './components/SettingsPanel'
 import AccountDetailModal from './components/AccountDetailModal'
 import AddAccountModal from './components/AddAccountModal'
@@ -16,6 +17,12 @@ import EditApiKeyModal from './components/EditApiKeyModal'
 import ConfirmDialog from './components/ConfirmDialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Button } from './components/ui/button'
+import {
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuLink,
+} from './components/ui/navigation-menu'
 import { LogOut } from 'lucide-react'
 
 function AppContent() {
@@ -49,7 +56,7 @@ function AppContent() {
 
 
   useEffect(() => {
-    const savedPassword = localStorage.getItem('admin_password')
+    const savedPassword = sessionStorage.getItem('admin_password')
     if (savedPassword) {
       verifyPassword(savedPassword)
     }
@@ -61,14 +68,17 @@ function AppContent() {
         headers: { 'X-Admin-Password': pwd }
       })
       if (res.ok) {
-        localStorage.setItem('admin_password', pwd)
+        sessionStorage.setItem('admin_password', pwd)
         setAuthenticated(true)
         setPassword(pwd)
         loadAccounts(pwd)
         loadApiKeys(pwd)
+      } else {
+        sessionStorage.removeItem('admin_password')
       }
     } catch (e) {
       console.error('Verification failed:', e)
+      sessionStorage.removeItem('admin_password')
     }
   }
 
@@ -78,7 +88,7 @@ function AppContent() {
         headers: { 'X-Admin-Password': pwd }
       })
       if (res.ok) {
-        localStorage.setItem('admin_password', pwd)
+        sessionStorage.setItem('admin_password', pwd)
         setAuthenticated(true)
         setPassword(pwd)
         loadAccounts(pwd)
@@ -129,7 +139,7 @@ function AppContent() {
       title: '确认退出',
       description: '确定要退出登录吗？',
       onConfirm: () => {
-        localStorage.removeItem('admin_password')
+        sessionStorage.removeItem('admin_password')
         setAuthenticated(false)
         setPassword('')
         setAccounts([])
@@ -551,6 +561,19 @@ function AppContent() {
                 </button>
                 <button
                   onClick={() => {
+                    setActiveTab('audit')
+                    localStorage.setItem('activeTab', 'audit')
+                  }}
+                  className={`px-4 py-2 text-sm font-medium transition-all duration-200 border-b-2 ${
+                    activeTab === 'audit'
+                      ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                  }`}
+                >
+                  审计日志
+                </button>
+                <button
+                  onClick={() => {
                     setActiveTab('settings')
                     localStorage.setItem('activeTab', 'settings')
                   }}
@@ -639,6 +662,10 @@ function AppContent() {
 
           <TabsContent value="logs">
             <LogsPanel password={password} />
+          </TabsContent>
+
+          <TabsContent value="audit">
+            <AuditLogsPanel password={password} />
           </TabsContent>
         </Tabs>
       </main>
