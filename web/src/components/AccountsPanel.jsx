@@ -173,7 +173,12 @@ export default function AccountsPanel({
     const matchesFilter = filterStatus === 'all' ||
       (filterStatus === 'enabled' && acc.enabled) ||
       (filterStatus === 'disabled' && !acc.enabled) ||
-      (filterStatus === 'pro' && acc.subscriptionType?.includes('Pro'))
+      (filterStatus === 'free' && (!acc.usageData?.subscriptionInfo?.type || acc.usageData?.subscriptionInfo?.type === 'FREE')) ||
+      (filterStatus === 'pro' && acc.usageData?.subscriptionInfo?.type?.toUpperCase().includes('PRO')) ||
+      (filterStatus === 'idc' && acc.authMethod === 'idc') ||
+      (filterStatus === 'social' && acc.authMethod === 'social') ||
+      (filterStatus === 'high-usage' && getUsagePercent(acc) > 80) ||
+      (filterStatus === 'overage' && hasOverage(acc))
 
     return matchesSearch && matchesFilter
   })
@@ -244,9 +249,25 @@ export default function AccountsPanel({
                 </div>
               </div>
               <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="w-[140px] border-2">
+                    <SelectValue placeholder="筛选" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部账户</SelectItem>
+                    <SelectItem value="enabled">已启用</SelectItem>
+                    <SelectItem value="disabled">已禁用</SelectItem>
+                    <SelectItem value="free">Free</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                    <SelectItem value="idc">IdC认证</SelectItem>
+                    <SelectItem value="social">Social认证</SelectItem>
+                    <SelectItem value="high-usage">高用量(&gt;80%)</SelectItem>
+                    <SelectItem value="overage">超额使用</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
                   <SelectTrigger className="w-[140px] border-2">
-                    <SelectValue />
+                    <SelectValue placeholder="排序" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="lastUsed">最后使用</SelectItem>
