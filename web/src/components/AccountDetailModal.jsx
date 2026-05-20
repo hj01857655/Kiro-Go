@@ -43,7 +43,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
           <div className="space-y-6">
           {/* 基本信息 */}
           <div>
-            <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+            <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
               <User className="w-4 h-4" />
               基本信息
             </h3>
@@ -73,7 +73,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
 
           {/* 认证信息 */}
           <div>
-            <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+            <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
               <Key className="w-4 h-4" />
               认证信息
             </h3>
@@ -92,7 +92,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
             <>
               <Separator />
               <div>
-                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
                   <Zap className="w-4 h-4" />
                   订阅信息
                 </h3>
@@ -144,7 +144,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
             <>
               <Separator />
               <div>
-                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
                   <TrendingUp className="w-4 h-4" />
                   用量明细
                 </h3>
@@ -340,7 +340,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
             <>
               <Separator />
               <div>
-                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
                   <User className="w-4 h-4" />
                   用户信息
                 </h3>
@@ -367,7 +367,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
           {/* 使用统计 */}
           <Separator />
           <div>
-            <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+            <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
               <Activity className="w-4 h-4" />
               使用统计
             </h3>
@@ -408,7 +408,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
             <>
               <Separator />
               <div>
-                <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
                   <Server className="w-4 h-4" />
                   可用模型
                 </h3>
