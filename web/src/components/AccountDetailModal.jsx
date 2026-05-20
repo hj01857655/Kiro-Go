@@ -1,15 +1,46 @@
+import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
 import { Badge } from './ui/badge'
 import { Separator } from './ui/separator'
 import { ScrollArea } from './ui/scroll-area'
+import { Switch } from './ui/switch'
 import {
   User, Mail, Key, Globe, Activity, Calendar,
   TrendingUp, Shield, Server, Hash, DollarSign,
   AlertCircle, CheckCircle2, Clock, Zap
 } from 'lucide-react'
+import { toast } from 'sonner'
 
-export default function AccountDetailModal({ open, onOpenChange, account }) {
+export default function AccountDetailModal({ open, onOpenChange, account, password, onRefresh }) {
+  const [overageLoading, setOverageLoading] = useState(false)
+
   if (!account) return null
+
+  const handleOverageToggle = async (enabled) => {
+    setOverageLoading(true)
+    try {
+      const res = await fetch(`/admin/api/accounts/${account.id}/overage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Password': password
+        },
+        body: JSON.stringify({ enabled })
+      })
+
+      if (res.ok) {
+        toast.success(enabled ? '超额计费已启用' : '超额计费已关闭')
+        if (onRefresh) onRefresh()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || '操作失败')
+      }
+    } catch (e) {
+      toast.error('操作失败')
+    } finally {
+      setOverageLoading(false)
+    }
+  }
 
   const formatDate = (timestamp) => {
     if (!timestamp) return '从未'
@@ -119,19 +150,26 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                       )}
                     </div>
                   </div>
-                  {account.usageData.overageConfiguration && (
-                    <div className="flex items-center gap-2 text-sm">
-                      {account.usageData.overageConfiguration.overageStatus === 'ENABLED' ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
-                          <span className="text-green-600 dark:text-green-400 font-medium">超额计费已启用</span>
-                        </>
-                      ) : (
-                        <>
-                          <AlertCircle className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-muted-foreground">超额计费未启用</span>
-                        </>
-                      )}
+                  {account.usageData.overageConfiguration && account.usageData.subscriptionInfo?.overageCapability === 'OVERAGE_CAPABLE' && (
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        {account.usageData.overageConfiguration.overageStatus === 'ENABLED' ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                            <span className="text-sm text-green-600 dark:text-green-400 font-medium">超额计费已启用</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">超额计费未启用</span>
+                          </>
+                        )}
+                      </div>
+                      <Switch
+                        checked={account.usageData.overageConfiguration.overageStatus === 'ENABLED'}
+                        onCheckedChange={handleOverageToggle}
+                        disabled={overageLoading}
+                      />
                     </div>
                   )}
                 </div>

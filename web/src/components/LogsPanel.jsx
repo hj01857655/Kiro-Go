@@ -5,15 +5,16 @@ import { Input } from './ui/input'
 import { Badge } from './ui/badge'
 import { ScrollArea } from './ui/scroll-area'
 import {
-  FileText, RefreshCw, Search, Clock,
-  CheckCircle2, XCircle, Activity, Zap
+  FileText, RefreshCw, Clock,
+  CheckCircle2, XCircle, Activity, Zap,
+  User, Globe, ArrowUpCircle, ArrowDownCircle,
+  Database, Sparkles
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function LogsPanel({ password }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
 
   useEffect(() => {
@@ -70,15 +71,10 @@ export default function LogsPanel({ password }) {
   }
 
   const filteredLogs = logs.filter(log => {
-    const matchesSearch = !searchTerm ||
-      log.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.accountEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.path?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.errorMessage?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = filterStatus === 'all' ||
       (filterStatus === 'success' && log.success) ||
       (filterStatus === 'error' && !log.success)
-    return matchesSearch && matchesStatus
+    return matchesStatus
   })
 
   const successCount = logs.filter(l => l.success).length
@@ -149,55 +145,44 @@ export default function LogsPanel({ password }) {
       {/* 操作栏 */}
       <Card className="border-0 shadow-md glass">
         <CardContent className="pt-4 pb-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="搜索模型、账户、路径或错误信息..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 border-2"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant={filterStatus === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilterStatus('all')}
-                className="border-2"
-              >
-                全部
-              </Button>
-              <Button
-                variant={filterStatus === 'success' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilterStatus('success')}
-                className="border-2"
-              >
-                成功
-              </Button>
-              <Button
-                variant={filterStatus === 'error' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilterStatus('error')}
-                className="border-2"
-              >
-                失败
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={loadLogs}
-                disabled={loading}
-                className="border-2"
-              >
-                {loading ? (
-                  <Activity className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-              </Button>
-            </div>
+          <div className="flex gap-2">
+            <Button
+              variant={filterStatus === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilterStatus('all')}
+              className="border-2"
+            >
+              全部
+            </Button>
+            <Button
+              variant={filterStatus === 'success' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilterStatus('success')}
+              className="border-2"
+            >
+              成功
+            </Button>
+            <Button
+              variant={filterStatus === 'error' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setFilterStatus('error')}
+              className="border-2"
+            >
+              失败
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadLogs}
+              disabled={loading}
+              className="border-2 ml-auto"
+            >
+              {loading ? (
+                <Activity className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -222,59 +207,105 @@ export default function LogsPanel({ password }) {
             </div>
           ) : (
             <ScrollArea className="h-[600px] pr-4">
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {filteredLogs.map((log, index) => (
                   <div
                     key={index}
-                    className="p-4 bg-muted/30 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                    className={`p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                      log.success
+                        ? 'bg-gradient-to-br from-green-50/50 to-emerald-50/30 dark:from-green-950/20 dark:to-emerald-950/10 border-green-200 dark:border-green-800/50 hover:border-green-300 dark:hover:border-green-700'
+                        : 'bg-gradient-to-br from-red-50/50 to-rose-50/30 dark:from-red-950/20 dark:to-rose-950/10 border-red-200 dark:border-red-800/50 hover:border-red-300 dark:hover:border-red-700'
+                    }`}
                   >
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2">
+                    {/* 第一行：状态、方法、模型、状态码、流式、时间 */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {getStatusBadge(log.success)}
-                        <Badge variant="outline" className="text-xs">
+                        <Badge variant="outline" className="text-xs font-mono">
                           {log.method}
                         </Badge>
-                        <span className="font-semibold text-sm">{log.model}</span>
+                        <Badge className="text-xs font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0">
+                          {log.model}
+                        </Badge>
+                        {log.statusCode && (
+                          <Badge variant="outline" className={`text-xs font-mono ${
+                            log.statusCode === 200
+                              ? 'border-green-500 text-green-700 dark:text-green-400'
+                              : 'border-red-500 text-red-700 dark:text-red-400'
+                          }`}>
+                            {log.statusCode}
+                          </Badge>
+                        )}
+                        {log.stream !== undefined && (
+                          <Badge variant="outline" className="text-xs">
+                            {log.stream ? '🌊 流式' : '📦 非流式'}
+                          </Badge>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3" />
-                        {formatDate(log.timestamp)}
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-md">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span className="font-mono">{formatDate(log.timestamp)}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2">
-                      <span>路径: {log.path}</span>
-                      {log.accountEmail && <span>账户: {log.accountEmail}</span>}
-                      {log.stream !== undefined && (
-                        <span>{log.stream ? '流式' : '非流式'}</span>
+                    {/* 第二行：路径和账户 */}
+                    <div className="flex items-center gap-3 mb-3 text-xs">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Globe className="w-3.5 h-3.5" />
+                        <span className="font-mono">{log.path}</span>
+                      </div>
+                      {log.accountEmail && (
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <User className="w-3.5 h-3.5" />
+                          <span>{log.accountEmail}</span>
+                        </div>
                       )}
                     </div>
 
+                    {/* 错误信息 */}
                     {log.errorMessage && (
-                      <div className="mb-2 p-2 bg-red-100 dark:bg-red-900/20 rounded text-xs text-red-700 dark:text-red-300">
-                        错误: {log.errorMessage}
+                      <div className="mb-3 p-3 bg-red-100 dark:bg-red-900/30 rounded-lg border border-red-300 dark:border-red-800">
+                        <div className="flex items-start gap-2">
+                          <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                          <span className="text-xs text-red-700 dark:text-red-300 break-all">{log.errorMessage}</span>
+                        </div>
                       </div>
                     )}
 
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    {/* Token 统计 */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {log.inputTokens > 0 && (
-                        <span>输入: {log.inputTokens.toLocaleString()} tokens</span>
+                        <div className="flex items-center gap-1.5 px-2 py-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-md">
+                          <ArrowUpCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                            {log.inputTokens.toLocaleString()}
+                          </span>
+                        </div>
                       )}
                       {log.outputTokens > 0 && (
-                        <span>输出: {log.outputTokens.toLocaleString()} tokens</span>
+                        <div className="flex items-center gap-1.5 px-2 py-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-md">
+                          <ArrowDownCircle className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                          <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
+                            {log.outputTokens.toLocaleString()}
+                          </span>
+                        </div>
                       )}
                       {log.cacheCreationInputTokens > 0 && (
-                        <span className="text-blue-600 dark:text-blue-400">
-                          缓存创建: {log.cacheCreationInputTokens.toLocaleString()}
-                        </span>
+                        <div className="flex items-center gap-1.5 px-2 py-1.5 bg-cyan-100 dark:bg-cyan-900/30 rounded-md">
+                          <Database className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                          <span className="text-xs font-medium text-cyan-700 dark:text-cyan-300">
+                            创建 {log.cacheCreationInputTokens.toLocaleString()}
+                          </span>
+                        </div>
                       )}
                       {log.cacheReadInputTokens > 0 && (
-                        <span className="text-green-600 dark:text-green-400">
-                          缓存读取: {log.cacheReadInputTokens.toLocaleString()}
-                        </span>
+                        <div className="flex items-center gap-1.5 px-2 py-1.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-md">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                            读取 {log.cacheReadInputTokens.toLocaleString()}
+                          </span>
+                        </div>
                       )}
-                      {log.statusCode && <span>状态码: {log.statusCode}</span>}
-                      {log.ipAddress && <span>IP: {log.ipAddress}</span>}
                     </div>
                   </div>
                 ))}

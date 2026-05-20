@@ -3,6 +3,7 @@ import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
 import { Checkbox } from './ui/checkbox'
+import { Switch } from './ui/switch'
 import {
   RefreshCw, Trash2, Power, Plus, Search,
   Eye, Loader2, Activity, Download,
@@ -52,18 +53,46 @@ export default function AccountsPanel({
   onBatchDelete,
   searchInputRef,
   selectedAccounts = [],
-  onSelectedAccountsChange
+  onSelectedAccountsChange,
+  password
 }) {
   const [actionLoading, setActionLoading] = useState({})
   const [filterStatus, setFilterStatus] = useState('all')
   const [sortBy, setSortBy] = useState('lastUsed')
   const [expandedCards, setExpandedCards] = useState({}) // 记录哪些卡片展开了用量详情
+  const [overageLoading, setOverageLoading] = useState({})
 
   const toggleCardExpand = (id) => {
     setExpandedCards(prev => ({
       ...prev,
       [id]: !prev[id]
     }))
+  }
+
+  const handleOverageToggle = async (accountId, enabled) => {
+    setOverageLoading(prev => ({ ...prev, [accountId]: true }))
+    try {
+      const res = await fetch(`/admin/api/accounts/${accountId}/overage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Password': password
+        },
+        body: JSON.stringify({ enabled })
+      })
+
+      if (res.ok) {
+        toast.success(enabled ? '超额计费已启用' : '超额计费已关闭')
+        onRefresh()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || '操作失败')
+      }
+    } catch (e) {
+      toast.error('操作失败')
+    } finally {
+      setOverageLoading(prev => ({ ...prev, [accountId]: false }))
+    }
   }
 
   const selectedIds = selectedAccounts
@@ -537,6 +566,17 @@ export default function AccountsPanel({
                           {/* 超额信息 - 只有具备超额资格的账号才显示 */}
                           {hasOverageCapability && overageRate > 0 && (
                             <div className="pt-0.5 border-t border-border space-y-0.5">
+                              {/* 超额开关 */}
+                              <div className="flex items-center justify-between py-1">
+                                <span className="text-xs text-muted-foreground">超额计费</span>
+                                <Switch
+                                  checked={overageEnabled}
+                                  onCheckedChange={(enabled) => handleOverageToggle(account.id, enabled)}
+                                  disabled={overageLoading[account.id]}
+                                  className="scale-75"
+                                />
+                              </div>
+
                               {/* 当前超额使用 */}
                               <div className="flex items-center justify-between text-xs">
                                 <span className={hasOverageUsage ? "text-purple-600 dark:text-purple-400 font-bold" : "text-muted-foreground"}>

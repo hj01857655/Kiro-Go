@@ -590,6 +590,7 @@ function AppContent() {
               searchInputRef={searchInputRef}
               selectedAccounts={selectedAccounts}
               onSelectedAccountsChange={setSelectedAccounts}
+              password={password}
             />
           </TabsContent>
 
@@ -620,6 +621,8 @@ function AppContent() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         account={accountDetail}
+        password={password}
+        onRefresh={loadAccounts}
       />
 
       <AddAccountModal

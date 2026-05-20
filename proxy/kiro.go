@@ -379,9 +379,10 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 
 		// Rate limit exceeded
 		if resp.StatusCode == 429 {
+			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			logger.Warnf("[KiroAPI] Endpoint %s rate limited (429), trying next...", ep.Name)
-			lastErr = fmt.Errorf("rate limit on %s", ep.Name)
+			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
 			continue
 		}
 
