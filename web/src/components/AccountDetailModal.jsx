@@ -21,7 +21,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
       <Icon className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
-        <p className={`text-sm font-mono break-all ${className}`}>{value || '-'}</p>
+        <p className={`text-sm font-mono break-all text-foreground ${className}`}>{value || '-'}</p>
       </div>
     </div>
   )
@@ -230,13 +230,13 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                           <div className="pt-3 border-t border-border space-y-2">
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">超额费率</span>
-                              <span className="font-semibold">
+                              <span className="font-semibold text-foreground">
                                 {usage.currency} {usage.overageRate} / {usage.unit?.toLowerCase()}
                               </span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">超额上限</span>
-                              <span className="font-semibold">
+                              <span className="font-semibold text-foreground">
                                 {usage.overageCapWithPrecision?.toFixed(0) || usage.overageCap} {usage.unit?.toLowerCase()}
                               </span>
                             </div>
@@ -285,18 +285,18 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                             <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">免费试用</p>
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">试用状态</span>
-                              <span className="font-semibold">{usage.freeTrialInfo.freeTrialStatus}</span>
+                              <span className="font-semibold text-foreground">{usage.freeTrialInfo.freeTrialStatus}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">试用额度</span>
-                              <span className="font-semibold">
+                              <span className="font-semibold text-foreground">
                                 {usage.freeTrialInfo.currentUsage.toFixed(2)} / {usage.freeTrialInfo.usageLimit.toFixed(0)}
                               </span>
                             </div>
                             {usage.freeTrialInfo.freeTrialExpiry && (
                               <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">试用到期</span>
-                                <span className="font-semibold">
+                                <span className="font-semibold text-foreground">
                                   {new Date(Number(usage.freeTrialInfo.freeTrialExpiry) * 1000).toLocaleDateString('zh-CN')}
                                 </span>
                               </div>
@@ -311,7 +311,7 @@ export default function AccountDetailModal({ open, onOpenChange, account }) {
                             {usage.bonuses.map((bonus, bonusIdx) => (
                               <div key={bonusIdx} className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 space-y-1">
                                 <div className="flex items-center justify-between text-sm">
-                                  <span className="font-semibold">{bonus.displayName}</span>
+                                  <span className="font-semibold text-foreground">{bonus.displayName}</span>
                                   <Badge variant="outline" className="text-xs">{bonus.status}</Badge>
                                 </div>
                                 <div className="flex items-center justify-between text-xs text-muted-foreground">
