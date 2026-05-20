@@ -188,8 +188,8 @@ export default function AccountsPanel({
       case 'requests':
         return (b.requestCount || 0) - (a.requestCount || 0)
       case 'usage':
-        const aUsage = a.usageCurrent / a.usageLimit || 0
-        const bUsage = b.usageCurrent / b.usageLimit || 0
+        const aUsage = getUsagePercent(a)
+        const bUsage = getUsagePercent(b)
         return bUsage - aUsage
       default:
         return 0
@@ -251,10 +251,18 @@ export default function AccountsPanel({
                   <SelectContent>
                     <SelectItem value="lastUsed">最后使用</SelectItem>
                     <SelectItem value="email">邮箱</SelectItem>
-                    <SelectItem value="requests">请求数</SelectItem>
-                    <SelectItem value="usage">用量</SelectItem>
+                    <SelectItem value="requests">请求次数</SelectItem>
+                    <SelectItem value="usage">用量百分比</SelectItem>
                   </SelectContent>
                 </Select>
+                <Button
+                  onClick={() => setShowImportModal(true)}
+                  variant="outline"
+                  className="border-2 border-border"
+                >
+                  <Upload className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">导入</span>
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="border-2 border-border">
@@ -273,14 +281,6 @@ export default function AccountsPanel({
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button
-                  onClick={() => setShowImportModal(true)}
-                  variant="outline"
-                  className="border-2 border-border"
-                >
-                  <Upload className="w-4 h-4 sm:mr-2" />
-                  <span className="hidden sm:inline">导入</span>
-                </Button>
                 <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 border-border btn-scale">
                   <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">刷新</span>
