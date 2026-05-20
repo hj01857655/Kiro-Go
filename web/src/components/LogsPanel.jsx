@@ -8,7 +8,7 @@ import {
   FileText, RefreshCw, Clock,
   CheckCircle2, XCircle, Activity, Zap,
   User, Globe, ArrowUpCircle, ArrowDownCircle,
-  Database, Sparkles
+  Database, Sparkles, Trash2
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -16,6 +16,9 @@ export default function LogsPanel({ password }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterModel, setFilterModel] = useState('all')
+  const [filterAccount, setFilterAccount] = useState('all')
+  const [sortBy, setSortBy] = useState('time-desc')
 
   useEffect(() => {
     loadLogs()
@@ -37,6 +40,26 @@ export default function LogsPanel({ password }) {
       toast.error('加载日志失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const clearLogs = async () => {
+    if (!confirm('确定要清空所有日志吗？此操作无法撤销。')) {
+      return
+    }
+    try {
+      const res = await fetch('/admin/api/request-logs', {
+        method: 'DELETE',
+        headers: { 'X-Admin-Password': password }
+      })
+      if (res.ok) {
+        setLogs([])
+        toast.success('日志已清空')
+      } else {
+        toast.error('清空日志失败')
+      }
+    } catch (e) {
+      toast.error('清空日志失败')
     }
   }
 
@@ -74,8 +97,41 @@ export default function LogsPanel({ password }) {
     const matchesStatus = filterStatus === 'all' ||
       (filterStatus === 'success' && log.success) ||
       (filterStatus === 'error' && !log.success)
-    return matchesStatus
+
+    const matchesModel = filterModel === 'all' || log.model === filterModel
+
+    const matchesAccount = filterAccount === 'all' || log.accountEmail === filterAccount
+
+    return matchesStatus && matchesModel && matchesAccount
   })
+
+  // 排序
+  const sortedLogs = [...filteredLogs].sort((a, b) => {
+    switch (sortBy) {
+      case 'time-desc':
+        return (b.timestamp || 0) - (a.timestamp || 0) // 最新的在前
+      case 'time-asc':
+        return (a.timestamp || 0) - (b.timestamp || 0) // 最旧的在前
+      case 'tokens-desc':
+        const aTokens = (a.inputTokens || 0) + (a.outputTokens || 0)
+        const bTokens = (b.inputTokens || 0) + (b.outputTokens || 0)
+        return bTokens - aTokens
+      case 'tokens-asc':
+        const aTokens2 = (a.inputTokens || 0) + (a.outputTokens || 0)
+        const bTokens2 = (b.inputTokens || 0) + (b.outputTokens || 0)
+        return aTokens2 - bTokens2
+      case 'duration-desc':
+        return (b.duration || 0) - (a.duration || 0)
+      case 'duration-asc':
+        return (a.duration || 0) - (b.duration || 0)
+      default:
+        return 0
+    }
+  })
+
+  // 获取唯一的模型和账户列表
+  const uniqueModels = [...new Set(logs.map(l => l.model).filter(Boolean))]
+  const uniqueAccounts = [...new Set(logs.map(l => l.accountEmail).filter(Boolean))]
 
   const successCount = logs.filter(l => l.success).length
   const errorCount = logs.filter(l => !l.success).length
@@ -145,44 +201,93 @@ export default function LogsPanel({ password }) {
       {/* 操作栏 */}
       <Card className="border-0 shadow-md glass">
         <CardContent className="pt-4 pb-4">
-          <div className="flex gap-2">
-            <Button
-              variant={filterStatus === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilterStatus('all')}
-              className="border-2"
-            >
-              全部
-            </Button>
-            <Button
-              variant={filterStatus === 'success' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilterStatus('success')}
-              className="border-2"
-            >
-              成功
-            </Button>
-            <Button
-              variant={filterStatus === 'error' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilterStatus('error')}
-              className="border-2"
-            >
-              失败
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadLogs}
-              disabled={loading}
-              className="border-2 ml-auto"
-            >
-              {loading ? (
-                <Activity className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                variant={filterStatus === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFilterStatus('all')}
+                className="border-2"
+              >
+                全部
+              </Button>
+              <Button
+                variant={filterStatus === 'success' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFilterStatus('success')}
+                className="border-2"
+              >
+                成功
+              </Button>
+              <Button
+                variant={filterStatus === 'error' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFilterStatus('error')}
+                className="border-2"
+              >
+                失败
+              </Button>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {uniqueModels.length > 1 && (
+                <select
+                  value={filterModel}
+                  onChange={(e) => setFilterModel(e.target.value)}
+                  className="text-xs border-2 rounded-md px-2 py-1 bg-background"
+                >
+                  <option value="all">所有模型</option>
+                  {uniqueModels.map(model => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
               )}
-            </Button>
+              {uniqueAccounts.length > 1 && (
+                <select
+                  value={filterAccount}
+                  onChange={(e) => setFilterAccount(e.target.value)}
+                  className="text-xs border-2 rounded-md px-2 py-1 bg-background"
+                >
+                  <option value="all">所有账户</option>
+                  {uniqueAccounts.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+              )}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="text-xs border-2 rounded-md px-2 py-1 bg-background"
+              >
+                <option value="time-desc">最新优先</option>
+                <option value="time-asc">最旧优先</option>
+                <option value="tokens-desc">Token多→少</option>
+                <option value="tokens-asc">Token少→多</option>
+                <option value="duration-desc">耗时长→短</option>
+                <option value="duration-asc">耗时短→长</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadLogs}
+                disabled={loading}
+                className="border-2"
+              >
+                {loading ? (
+                  <Activity className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={clearLogs}
+                disabled={loading || logs.length === 0}
+                className="border-2"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -208,7 +313,7 @@ export default function LogsPanel({ password }) {
           ) : (
             <ScrollArea className="h-[600px] pr-4">
               <div className="space-y-3">
-                {filteredLogs.map((log, index) => (
+                {sortedLogs.map((log, index) => (
                   <div
                     key={index}
                     className={`p-4 rounded-xl border-2 transition-all hover:shadow-md ${
