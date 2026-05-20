@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { ThemeToggle } from './components/ThemeToggle'
 import LoginPage from './components/LoginPage'
+import DashboardPanel from './components/DashboardPanel'
 import AccountsPanel from './components/AccountsPanel'
 import ApiKeysPanel from './components/ApiKeysPanel'
 import LogsPanel from './components/LogsPanel'
@@ -21,7 +22,7 @@ function AppContent() {
   const [authenticated, setAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('activeTab') || 'accounts'
+    return localStorage.getItem('activeTab') || 'dashboard'
   })
   const [accounts, setAccounts] = useState([])
   const [apiKeys, setApiKeys] = useState([])
@@ -498,6 +499,19 @@ function AppContent() {
               <nav className="flex items-center gap-1">
                 <button
                   onClick={() => {
+                    setActiveTab('dashboard')
+                    localStorage.setItem('activeTab', 'dashboard')
+                  }}
+                  className={`px-4 py-2 text-sm font-medium transition-all duration-200 border-b-2 ${
+                    activeTab === 'dashboard'
+                      ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                  }`}
+                >
+                  仪表板
+                </button>
+                <button
+                  onClick={() => {
                     setActiveTab('accounts')
                     localStorage.setItem('activeTab', 'accounts')
                   }}
@@ -575,6 +589,14 @@ function AppContent() {
           }}
           className="space-y-6"
         >
+
+          <TabsContent value="dashboard">
+            <DashboardPanel
+              password={password}
+              accounts={accounts}
+              apiKeys={apiKeys}
+            />
+          </TabsContent>
 
           <TabsContent value="accounts">
             <AccountsPanel
