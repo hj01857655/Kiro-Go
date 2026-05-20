@@ -4,7 +4,6 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Key, Loader2, Copy, CheckCircle2 } from 'lucide-react'
-import { toast } from 'sonner'
 
 export default function CreateApiKeyModal({ open, onOpenChange, password, onSuccess }) {
   const [name, setName] = useState('')
@@ -13,7 +12,7 @@ export default function CreateApiKeyModal({ open, onOpenChange, password, onSucc
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      toast.error('请输入密钥名称')
+      notify.error('请输入密钥名称')
       return
     }
 
@@ -30,13 +29,13 @@ export default function CreateApiKeyModal({ open, onOpenChange, password, onSucc
       const data = await res.json()
       if (data.key) {
         setCreatedKey(data.key)
-        toast.success('API密钥创建成功')
+        notify.success('API密钥创建成功')
         onSuccess()
       } else {
-        toast.error('创建失败: ' + (data.error || '未知错误'))
+        notify.error('创建失败: ' + (data.error || '未知错误'))
       }
     } catch (e) {
-      toast.error('创建失败')
+      notify.error('创建失败')
     } finally {
       setLoading(false)
     }
@@ -45,8 +44,8 @@ export default function CreateApiKeyModal({ open, onOpenChange, password, onSucc
   const handleCopy = () => {
     if (createdKey) {
       navigator.clipboard.writeText(createdKey)
-        .then(() => toast.success('已复制到剪贴板'))
-        .catch(() => toast.error('复制失败'))
+        .then(() => notify.success('已复制到剪贴板'))
+        .catch(() => notify.error('复制失败'))
     }
   }
 

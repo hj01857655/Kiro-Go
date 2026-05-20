@@ -366,6 +366,7 @@
     "operationFailed": "Operation failed",
     "refreshSuccess": "Refreshed successfully",
     "refreshFailed": "Refresh failed",
+    "refreshing": "Refreshing...",
     "deleteSuccess": "Deleted successfully",
     "deleteFailed": "Delete failed",
     "batchEnabled": "Enabled {{count}} accounts",

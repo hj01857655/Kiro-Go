@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNotification } from './ui/notification'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Switch } from './ui/switch'
-import { toast } from 'sonner'
 import { Trash2, Plus } from 'lucide-react'
 
 export default function SettingsPanel({ password }) {
   const { t } = useTranslation()
+  const notify = useNotification()
   const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState({
     port: 8080,
@@ -92,7 +93,7 @@ export default function SettingsPanel({ password }) {
       }
     } catch (e) {
       console.error('Failed to load settings:', e)
-      toast.error(t('settings.loadError'))
+      notify.error(t('settings.loadError'))
     }
   }
 
@@ -146,9 +147,9 @@ export default function SettingsPanel({ password }) {
         body: JSON.stringify(promptFilter)
       })
 
-      toast.success(t('settings.saveSuccess'))
+      notify.success(t('settings.saveSuccess'))
     } catch (e) {
-      toast.error(t('settings.saveError') + ': ' + e.message)
+      notify.error(t('settings.saveError') + ': ' + e.message)
     } finally {
       setSaving(false)
     }

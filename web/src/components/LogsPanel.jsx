@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNotification } from './ui/notification'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -11,10 +12,10 @@ import {
   User, Globe, ArrowUpCircle, ArrowDownCircle,
   Database, Sparkles, Trash2, ChevronLeft, ChevronRight
 } from 'lucide-react'
-import { toast } from 'sonner'
 
 export default function LogsPanel({ password }) {
   const { t } = useTranslation()
+  const notify = useNotification()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [filterStatus, setFilterStatus] = useState('all')
@@ -42,10 +43,10 @@ export default function LogsPanel({ password }) {
         setTotal(data.total || 0)
         setTotalPages(data.pages || 0)
       } else {
-        toast.error(t('logs.messages.loadError'))
+        notify.error(t('logs.messages.loadError'))
       }
     } catch (e) {
-      toast.error(t('logs.messages.loadError'))
+      notify.error(t('logs.messages.loadError'))
     } finally {
       setLoading(false)
     }
@@ -71,12 +72,12 @@ export default function LogsPanel({ password }) {
         setTotal(0)
         setTotalPages(0)
         setPage(1)
-        toast.success(t('logs.messages.clearSuccess'))
+        notify.success(t('logs.messages.clearSuccess'))
       } else {
-        toast.error(t('logs.messages.clearError'))
+        notify.error(t('logs.messages.clearError'))
       }
     } catch (e) {
-      toast.error(t('logs.messages.clearError'))
+      notify.error(t('logs.messages.clearError'))
     }
   }
 

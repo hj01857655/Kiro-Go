@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNotification } from './ui/notification'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
@@ -14,7 +15,6 @@ import {
 import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { exportToJSON, exportToCSV, copyToClipboard } from '../lib/utils'
-import { toast } from 'sonner'
 import ImportAccountsModal from './ImportAccountsModal'
 import {
   DropdownMenu,
@@ -59,6 +59,7 @@ export default function AccountsPanel({
   password
 }) {
   const { t } = useTranslation()
+  const notify = useNotification()
   const [actionLoading, setActionLoading] = useState({})
   const [filterStatus, setFilterStatus] = useState('all')
   const [sortBy, setSortBy] = useState('lastUsed')
@@ -86,14 +87,14 @@ export default function AccountsPanel({
       })
 
       if (res.ok) {
-        toast.success(enabled ? t('accounts.overage.enabled') : t('accounts.overage.disabled'))
+        notify.success(enabled ? t('accounts.overage.enabled') : t('accounts.overage.disabled'))
         onRefresh()
       } else {
         const data = await res.json()
-        toast.error(data.error || t('common.error'))
+        notify.error(data.error || t('common.error'))
       }
     } catch (e) {
-      toast.error(t('common.error'))
+      notify.error(t('common.error'))
     } finally {
       setOverageLoading(prev => ({ ...prev, [accountId]: false }))
     }
@@ -141,7 +142,7 @@ export default function AccountsPanel({
       lastUsed: acc.lastUsed
     }))
     exportToJSON(exportData, `accounts-${new Date().toISOString().split('T')[0]}.json`)
-    toast.success(t('accounts.export.jsonSuccess'))
+    notify.success(t('accounts.export.jsonSuccess'))
   }
 
   const handleExportCSV = () => {
@@ -157,13 +158,13 @@ export default function AccountsPanel({
       [t('accounts.fields.lastUsed')]: acc.lastUsed ? new Date(acc.lastUsed * 1000).toLocaleString('zh-CN') : t('accounts.never')
     }))
     exportToCSV(exportData, `accounts-${new Date().toISOString().split('T')[0]}.csv`)
-    toast.success(t('accounts.export.csvSuccess'))
+    notify.success(t('accounts.export.csvSuccess'))
   }
 
   const handleCopyId = (id) => {
     copyToClipboard(id)
-      .then(() => toast.success(t('accounts.copyIdSuccess')))
-      .catch(() => toast.error(t('accounts.copyIdError')))
+      .then(() => notify.success(t('accounts.copyIdSuccess')))
+      .catch(() => notify.error(t('accounts.copyIdError')))
   }
 
   let filteredAccounts = accounts.filter(acc => {
@@ -344,7 +345,7 @@ export default function AccountsPanel({
                       variant="outline"
                       onClick={() => handleBatchAction(async (ids) => {
                         await Promise.all(ids.map(id => onRefreshAccount(id)))
-                        toast.success(t('accounts.batch.refreshSuccess', { count: ids.length }))
+                        notify.success(t('accounts.batch.refreshSuccess', { count: ids.length }))
                       })}
                       className="border-2 border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
                     >
@@ -428,17 +429,31 @@ export default function AccountsPanel({
             return (
               <Card
                 key={account.id}
-                className={`card-hover border-0 shadow-md glass overflow-hidden group relative animate-in fade-in slide-in-from-bottom-2 ${
+                className={`card-hover border-0 shadow-md glass overflow-hidden group relative animate-in fade-in slide-in-from-bottom-2 transition-all duration-300 ${
                   !account.enabled ? 'opacity-50 grayscale hover:opacity-60 transition-opacity' : ''
+                } ${
+                  actionLoading[account.id] === 'refresh' ? 'ring-2 ring-blue-500 ring-offset-2 shadow-lg shadow-blue-500/50' : ''
                 }`}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
                 {/* 顶部装饰条 */}
-                <div className={`absolute top-0 left-0 right-0 h-1 ${
-                  account.enabled
+                <div className={`absolute top-0 left-0 right-0 h-1 transition-all duration-300 ${
+                  actionLoading[account.id] === 'refresh'
+                    ? 'bg-gradient-to-r from-blue-500 via-cyan-500 to-blue-500 animate-pulse'
+                    : account.enabled
                     ? 'bg-gradient-to-r from-green-500 via-emerald-500 to-green-500'
                     : 'bg-gradient-to-r from-gray-400 to-gray-500'
                 }`} />
+
+                {/* 刷新中遮罩 */}
+                {actionLoading[account.id] === 'refresh' && (
+                  <div className="absolute inset-0 bg-blue-500/10 dark:bg-blue-400/10 pointer-events-none z-20 animate-pulse">
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="font-semibold">{t('messages.refreshing') || '刷新中...'}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* 禁用遮罩 */}
                 {!account.enabled && (

@@ -7,7 +7,6 @@ import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Card, CardContent } from './ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
-import { toast } from 'sonner'
 import { Upload, Loader2, Cloud, Building2, Cookie, HardDrive, Code, Globe } from 'lucide-react'
 
 export default function AddAccountModal({ open, onOpenChange, password, onSuccess }) {
@@ -61,15 +60,15 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       const data = await res.json()
       if (data.sessionId && data.userCode) {
         setBuilderIdData(data)
-        toast.success('请在浏览器中完成授权')
+        notify.success('请在浏览器中完成授权')
         // Start polling
         const interval = setInterval(() => pollBuilderIdAuth(data.sessionId), 3000)
         setPollingInterval(interval)
       } else {
-        toast.error('启动登录失败: ' + (data.error || '未知错误'))
+        notify.error('启动登录失败: ' + (data.error || '未知错误'))
       }
     } catch (e) {
-      toast.error('启动登录失败: ' + e.message)
+      notify.error('启动登录失败: ' + e.message)
     } finally {
       setLoading(false)
     }
@@ -89,14 +88,14 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       if (data.completed && data.account) {
         if (pollingInterval) clearInterval(pollingInterval)
         setPollingInterval(null)
-        toast.success('登录成功: ' + (data.account.email || data.account.id))
+        notify.success('登录成功: ' + (data.account.email || data.account.id))
         resetForm()
         onOpenChange(false)
         onSuccess()
       } else if (data.error && !data.error.includes('pending') && !data.error.includes('authorization_pending') && !data.error.includes('slow_down')) {
         if (pollingInterval) clearInterval(pollingInterval)
         setPollingInterval(null)
-        toast.error('登录失败: ' + data.error)
+        notify.error('登录失败: ' + data.error)
       }
     } catch (e) {
       // Ignore polling errors
@@ -106,7 +105,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
   // 2. IAM Identity Center
   const startIamSso = async () => {
     if (!iamStartUrl.trim()) {
-      toast.error('请输入Start URL')
+      notify.error('请输入Start URL')
       return
     }
     setLoading(true)
@@ -123,12 +122,12 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       if (data.sessionId && data.authorizeUrl) {
         setIamSessionId(data.sessionId)
         setIamAuthUrl(data.authorizeUrl)
-        toast.success('请在浏览器中完成登录，然后粘贴回调URL')
+        notify.success('请在浏览器中完成登录，然后粘贴回调URL')
       } else {
-        toast.error('启动SSO失败: ' + (data.error || '未知错误'))
+        notify.error('启动SSO失败: ' + (data.error || '未知错误'))
       }
     } catch (e) {
-      toast.error('启动SSO失败: ' + e.message)
+      notify.error('启动SSO失败: ' + e.message)
     } finally {
       setLoading(false)
     }
@@ -136,7 +135,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
 
   const completeIamSso = async () => {
     if (!iamCallbackUrl.trim()) {
-      toast.error('请输入回调URL')
+      notify.error('请输入回调URL')
       return
     }
     setLoading(true)
@@ -151,15 +150,15 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       })
       const data = await res.json()
       if (data.success && data.account) {
-        toast.success('导入成功: ' + (data.account.email || data.account.id))
+        notify.success('导入成功: ' + (data.account.email || data.account.id))
         resetForm()
         onOpenChange(false)
         onSuccess()
       } else {
-        toast.error('导入失败: ' + (data.error || '未知错误'))
+        notify.error('导入失败: ' + (data.error || '未知错误'))
       }
     } catch (e) {
-      toast.error('导入失败: ' + e.message)
+      notify.error('导入失败: ' + e.message)
     } finally {
       setLoading(false)
     }
@@ -168,7 +167,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
   // 3. SSO Token
   const importSsoToken = async () => {
     if (!ssoTokens.trim()) {
-      toast.error('请输入SSO Token')
+      notify.error('请输入SSO Token')
       return
     }
     setLoading(true)
@@ -183,15 +182,15 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       })
       const data = await res.json()
       if (data.success && data.accounts) {
-        toast.success(`成功导入 ${data.accounts.length} 个账户`)
+        notify.success(`成功导入 ${data.accounts.length} 个账户`)
         resetForm()
         onOpenChange(false)
         onSuccess()
       } else {
-        toast.error('导入失败: ' + (data.error || '未知错误'))
+        notify.error('导入失败: ' + (data.error || '未知错误'))
       }
     } catch (e) {
-      toast.error('导入失败: ' + e.message)
+      notify.error('导入失败: ' + e.message)
     } finally {
       setLoading(false)
     }
@@ -200,7 +199,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
   // 4. Kiro Local Cache
   const importLocalCache = async () => {
     if (!tokenJson.trim()) {
-      toast.error('请输入Token JSON')
+      notify.error('请输入Token JSON')
       return
     }
 
@@ -208,12 +207,12 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
     try {
       tokenData = JSON.parse(tokenJson)
     } catch {
-      toast.error('Token JSON格式错误')
+      notify.error('Token JSON格式错误')
       return
     }
 
     if (!tokenData.refreshToken) {
-      toast.error('Token JSON缺少refreshToken字段')
+      notify.error('Token JSON缺少refreshToken字段')
       return
     }
 
@@ -222,17 +221,17 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
 
     if (!isSocial) {
       if (!clientJson.trim()) {
-        toast.error('请输入Client JSON')
+        notify.error('请输入Client JSON')
         return
       }
       try {
         clientData = JSON.parse(clientJson)
       } catch {
-        toast.error('Client JSON格式错误')
+        notify.error('Client JSON格式错误')
         return
       }
       if (!clientData.clientId || !clientData.clientSecret) {
-        toast.error('Client JSON缺少clientId或clientSecret字段')
+        notify.error('Client JSON缺少clientId或clientSecret字段')
         return
       }
     }
@@ -258,15 +257,15 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       })
       const data = await res.json()
       if (data.success) {
-        toast.success('导入成功: ' + (data.account?.email || data.account?.id))
+        notify.success('导入成功: ' + (data.account?.email || data.account?.id))
         resetForm()
         onOpenChange(false)
         onSuccess()
       } else {
-        toast.error('导入失败: ' + data.error)
+        notify.error('导入失败: ' + data.error)
       }
     } catch (e) {
-      toast.error('导入失败')
+      notify.error('导入失败')
     } finally {
       setLoading(false)
     }
@@ -275,7 +274,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
   // 5. Credentials JSON
   const importCredentials = async () => {
     if (!credentialsJson.trim()) {
-      toast.error('请输入Credentials JSON')
+      notify.error('请输入Credentials JSON')
       return
     }
 
@@ -283,7 +282,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
     try {
       data = JSON.parse(credentialsJson)
     } catch {
-      toast.error('JSON格式错误')
+      notify.error('JSON格式错误')
       return
     }
 
@@ -322,19 +321,19 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
 
     setLoading(false)
     if (successCount > 0) {
-      toast.success(`成功导入 ${successCount} 个账户`)
+      notify.success(`成功导入 ${successCount} 个账户`)
       resetForm()
       onOpenChange(false)
       onSuccess()
     } else {
-      toast.error('导入失败')
+      notify.error('导入失败')
     }
   }
 
   // 6. Web Cookie
   const importWebCookie = async () => {
     if (!refreshToken.trim()) {
-      toast.error('请输入RefreshToken')
+      notify.error('请输入RefreshToken')
       return
     }
 
@@ -359,15 +358,15 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       })
       const data = await res.json()
       if (data.success) {
-        toast.success('导入成功: ' + (data.account?.email || data.account?.id))
+        notify.success('导入成功: ' + (data.account?.email || data.account?.id))
         resetForm()
         onOpenChange(false)
         onSuccess()
       } else {
-        toast.error('导入失败: ' + data.error)
+        notify.error('导入失败: ' + data.error)
       }
     } catch (e) {
-      toast.error('导入失败')
+      notify.error('导入失败')
     } finally {
       setLoading(false)
     }
@@ -474,7 +473,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
                               variant="outline"
                               onClick={() => {
                                 navigator.clipboard.writeText(builderIdData.userCode)
-                                toast.success('已复制验证码')
+                                notify.success('已复制验证码')
                               }}
                             >
                               复制

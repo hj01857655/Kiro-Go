@@ -3,7 +3,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Label } from './ui/label'
-import { toast } from 'sonner'
 import { Upload, Loader2, AlertCircle } from 'lucide-react'
 
 export default function ImportAccountsModal({ open, onOpenChange, password, onSuccess }) {
@@ -15,7 +14,7 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
     if (!file) return
 
     if (!file.name.endsWith('.json')) {
-      toast.error('请选择JSON文件')
+      notify.error('请选择JSON文件')
       return
     }
 
@@ -24,14 +23,14 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
       setJsonContent(event.target.result)
     }
     reader.onerror = () => {
-      toast.error('文件读取失败')
+      notify.error('文件读取失败')
     }
     reader.readAsText(file)
   }
 
   const handleImport = async () => {
     if (!jsonContent.trim()) {
-      toast.error('请输入或上传JSON内容')
+      notify.error('请输入或上传JSON内容')
       return
     }
 
@@ -39,7 +38,7 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
     try {
       data = JSON.parse(jsonContent)
     } catch {
-      toast.error('JSON格式错误')
+      notify.error('JSON格式错误')
       return
     }
 
@@ -47,7 +46,7 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
     const credentials = Array.isArray(data) ? data : [data]
 
     if (credentials.length === 0) {
-      toast.error('没有找到有效的账户数据')
+      notify.error('没有找到有效的账户数据')
       return
     }
 
@@ -98,12 +97,12 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
     setLoading(false)
 
     if (successCount > 0) {
-      toast.success(`成功导入 ${successCount} 个账户${failCount > 0 ? `，失败 ${failCount} 个` : ''}`)
+      notify.success(`成功导入 ${successCount} 个账户${failCount > 0 ? `，失败 ${failCount} 个` : ''}`)
       setJsonContent('')
       onOpenChange(false)
       onSuccess()
     } else {
-      toast.error(`导入失败：${errors[0] || '未知错误'}`)
+      notify.error(`导入失败：${errors[0] || '未知错误'}`)
     }
   }
 

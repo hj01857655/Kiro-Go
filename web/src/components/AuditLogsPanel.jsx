@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNotification } from './ui/notification'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
@@ -8,7 +9,6 @@ import {
   Shield, RefreshCw, Trash2, Clock, User, Activity,
   AlertTriangle, Info, AlertCircle, CheckCircle2
 } from 'lucide-react'
-import { toast } from 'sonner'
 
 export default function AuditLogsPanel({ password }) {
   const { t, i18n } = useTranslation()
@@ -35,10 +35,10 @@ export default function AuditLogsPanel({ password }) {
         const data = await res.json()
         setLogs(data || [])
       } else {
-        toast.error(t('auditLogs.loadError'))
+        notify.error(t('auditLogs.loadError'))
       }
     } catch (e) {
-      toast.error(t('auditLogs.loadError'))
+      notify.error(t('auditLogs.loadError'))
     } finally {
       setLoading(false)
     }
@@ -55,12 +55,12 @@ export default function AuditLogsPanel({ password }) {
       })
       if (res.ok) {
         setLogs([])
-        toast.success(t('auditLogs.clearSuccess'))
+        notify.success(t('auditLogs.clearSuccess'))
       } else {
-        toast.error(t('auditLogs.clearError'))
+        notify.error(t('auditLogs.clearError'))
       }
     } catch (e) {
-      toast.error(t('auditLogs.clearError'))
+      notify.error(t('auditLogs.clearError'))
     }
   }
 

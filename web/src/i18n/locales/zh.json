@@ -366,6 +366,7 @@
     "operationFailed": "操作失败",
     "refreshSuccess": "刷新成功",
     "refreshFailed": "刷新失败",
+    "refreshing": "刷新中...",
     "deleteSuccess": "删除成功",
     "deleteFailed": "删除失败",
     "batchEnabled": "已启用 {{count}} 个账户",

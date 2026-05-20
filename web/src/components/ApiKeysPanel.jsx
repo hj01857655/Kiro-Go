@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNotification } from './ui/notification'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
@@ -10,10 +11,10 @@ import {
   RefreshCw, Edit, TestTube,
   CheckCircle2, XCircle, Zap
 } from 'lucide-react'
-import { toast } from 'sonner'
 
 export default function ApiKeysPanel({ apiKeys, loading, onCreate, onDelete, onRefresh, onToggle, onEdit, onTest }) {
   const { t } = useTranslation()
+  const notify = useNotification()
   const [searchTerm, setSearchTerm] = useState('')
 
   const formatDate = (timestamp) => {
@@ -28,8 +29,8 @@ export default function ApiKeysPanel({ apiKeys, loading, onCreate, onDelete, onR
 
   const handleCopyId = (id) => {
     navigator.clipboard.writeText(id)
-      .then(() => toast.success(t('apiKeys.copySuccess')))
-      .catch(() => toast.error(t('apiKeys.copyError')))
+      .then(() => notify.success(t('apiKeys.copySuccess')))
+      .catch(() => notify.error(t('apiKeys.copyError')))
   }
 
   const filteredKeys = apiKeys.filter(key => 

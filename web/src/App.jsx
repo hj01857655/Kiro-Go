@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Toaster } from './components/ui/sonner'
-import { toast } from 'sonner'
+import { NotificationProvider, useNotification } from './components/ui/notification'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { ThemeToggle } from './components/ThemeToggle'
 import LoginPage from './components/LoginPage'
@@ -28,6 +27,7 @@ import { LogOut, Languages } from 'lucide-react'
 
 function AppContent() {
   const { t, i18n } = useTranslation()
+  const notify = useNotification()
   const [authenticated, setAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
   const [activeTab, setActiveTab] = useState(() => {
@@ -102,10 +102,10 @@ function AppContent() {
         loadAccounts(pwd)
         loadApiKeys(pwd)
       } else {
-        toast.error(t('messages.loginError'))
+        notify.error(t('messages.loginError'))
       }
     } catch (e) {
-      toast.error(t('messages.loginFailed'))
+      notify.error(t('messages.loginFailed'))
     }
   }
 
@@ -121,7 +121,7 @@ function AppContent() {
       }
     } catch (e) {
       console.error('Failed to load accounts:', e)
-      toast.error(t('messages.loadAccountsError'))
+      notify.error(t('messages.loadAccountsError'))
     } finally {
       setLoading(false)
     }
@@ -173,20 +173,20 @@ function AppContent() {
         body: JSON.stringify({ enabled: !enabled })
       })
       if (res.ok) {
-        toast.success(t('messages.operationSuccess'))
+        notify.success(t('messages.operationSuccess'))
       } else {
         // 失败时回滚
         setAccounts(prev => prev.map(acc =>
           acc.id === id ? { ...acc, enabled: enabled } : acc
         ))
-        toast.error(t('messages.operationFailed'))
+        notify.error(t('messages.operationFailed'))
       }
     } catch (e) {
       // 失败时回滚
       setAccounts(prev => prev.map(acc =>
         acc.id === id ? { ...acc, enabled: enabled } : acc
       ))
-      toast.error(t('messages.operationFailed'))
+      notify.error(t('messages.operationFailed'))
     }
   }
 
@@ -203,15 +203,13 @@ function AppContent() {
           setAccounts(prev => prev.map(acc =>
             acc.id === id ? data.account : acc
           ))
-          toast.success(t('messages.refreshSuccess'))
-        } else {
-          toast.success(t('messages.refreshSuccess'))
+          notify.success(t('messages.refreshSuccess'))
         }
       } else {
-        toast.error(t('messages.refreshFailed'))
+        notify.error(t('messages.refreshFailed'))
       }
     } catch (e) {
-      toast.error(t('messages.refreshFailed'))
+      notify.error(t('messages.refreshFailed'))
     }
   }
 
@@ -230,12 +228,12 @@ function AppContent() {
           if (res.ok) {
             // 从列表中移除
             setAccounts(prev => prev.filter(acc => acc.id !== id))
-            toast.success(t('messages.deleteSuccess'))
+            notify.success(t('messages.deleteSuccess'))
           } else {
-            toast.error(t('messages.deleteFailed'))
+            notify.error(t('messages.deleteFailed'))
           }
         } catch (e) {
-          toast.error(t('messages.deleteFailed'))
+          notify.error(t('messages.deleteFailed'))
         }
         setConfirmDialog({ ...confirmDialog, open: false })
       }
@@ -261,11 +259,11 @@ function AppContent() {
           })
         )
       )
-      toast.success(t('messages.batchEnabled', { count: ids.length }))
+      notify.success(t('messages.batchEnabled', { count: ids.length }))
     } catch (e) {
       // 失败时重新加载
       loadAccounts()
-      toast.error(t('messages.batchEnableFailed'))
+      notify.error(t('messages.batchEnableFailed'))
     }
   }
 
@@ -288,11 +286,11 @@ function AppContent() {
           })
         )
       )
-      toast.success(t('messages.batchDisabled', { count: ids.length }))
+      notify.success(t('messages.batchDisabled', { count: ids.length }))
     } catch (e) {
       // 失败时重新加载
       loadAccounts()
-      toast.error(t('messages.batchDisableFailed'))
+      notify.error(t('messages.batchDisableFailed'))
     }
   }
 
@@ -315,9 +313,9 @@ function AppContent() {
           // 从列表中移除
           setAccounts(prev => prev.filter(acc => !ids.includes(acc.id)))
           setSelectedAccounts([])
-          toast.success(t('messages.batchDeleted', { count: ids.length }))
+          notify.success(t('messages.batchDeleted', { count: ids.length }))
         } catch (e) {
-          toast.error(t('messages.batchDeleteFailed'))
+          notify.error(t('messages.batchDeleteFailed'))
         }
         setConfirmDialog({ ...confirmDialog, open: false })
       }
@@ -341,7 +339,7 @@ function AppContent() {
     a.download = `accounts-${new Date().toISOString().split('T')[0]}.json`
     a.click()
     URL.revokeObjectURL(url)
-    toast.success(t('messages.exportSuccess'))
+    notify.success(t('messages.exportSuccess'))
   }
 
   const handleExportCSV = () => {
@@ -367,7 +365,7 @@ function AppContent() {
     a.download = `accounts-${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    toast.success(t('messages.exportSuccess'))
+    notify.success(t('messages.exportSuccess'))
   }
 
   const showDetail = async (id) => {
@@ -380,10 +378,10 @@ function AppContent() {
         setAccountDetail(data)
         setDetailOpen(true)
       } else {
-        toast.error(t('messages.loadDetailError'))
+        notify.error(t('messages.loadDetailError'))
       }
     } catch (e) {
-      toast.error(t('messages.loadDetailError'))
+      notify.error(t('messages.loadDetailError'))
     }
   }
 
@@ -403,12 +401,12 @@ function AppContent() {
           if (res.ok) {
             // 从列表中移除
             setApiKeys(prev => prev.filter(key => key.id !== id))
-            toast.success(t('messages.deleteSuccess'))
+            notify.success(t('messages.deleteSuccess'))
           } else {
-            toast.error(t('messages.deleteFailed'))
+            notify.error(t('messages.deleteFailed'))
           }
         } catch (e) {
-          toast.error(t('messages.deleteFailed'))
+          notify.error(t('messages.deleteFailed'))
         }
         setConfirmDialog({ ...confirmDialog, open: false })
       }
@@ -431,20 +429,20 @@ function AppContent() {
         body: JSON.stringify({ enabled: !currentEnabled })
       })
       if (res.ok) {
-        toast.success(currentEnabled ? t('messages.apiKeyDisabled') : t('messages.apiKeyEnabled'))
+        notify.success(currentEnabled ? t('messages.apiKeyDisabled') : t('messages.apiKeyEnabled'))
       } else {
         // 失败时回滚
         setApiKeys(prev => prev.map(key =>
           key.id === id ? { ...key, enabled: currentEnabled } : key
         ))
-        toast.error(t('messages.operationFailed'))
+        notify.error(t('messages.operationFailed'))
       }
     } catch (e) {
       // 失败时回滚
       setApiKeys(prev => prev.map(key =>
         key.id === id ? { ...key, enabled: currentEnabled } : key
       ))
-      toast.error(t('messages.operationFailed'))
+      notify.error(t('messages.operationFailed'))
     }
   }
 
@@ -460,17 +458,17 @@ function AppContent() {
         setApiKeys(prev => prev.map(key =>
           key.id === id ? { ...key, key: data.key } : key
         ))
-        toast.success(t('messages.refreshSuccess'))
+        notify.success(t('messages.refreshSuccess'))
       } else {
-        toast.error(t('messages.refreshFailed'))
+        notify.error(t('messages.refreshFailed'))
       }
     } catch (e) {
-      toast.error(t('messages.refreshFailed'))
+      notify.error(t('messages.refreshFailed'))
     }
   }
 
   const testApiKey = async (id) => {
-    toast.info(t('messages.testing'))
+    notify.info(t('messages.testing'))
     try {
       const res = await fetch(`/admin/api/keys/${id}/test`, {
         method: 'POST',
@@ -478,12 +476,12 @@ function AppContent() {
       })
       const data = await res.json()
       if (res.ok && data.success) {
-        toast.success(t('messages.testSuccess', { time: data.responseTime }))
+        notify.success(t('messages.testSuccess', { time: data.responseTime }))
       } else {
-        toast.error(t('messages.testFailedWithError', { error: data.error || t('messages.unknownError') }))
+        notify.error(t('messages.testFailedWithError', { error: data.error || t('messages.unknownError') }))
       }
     } catch (e) {
-      toast.error(t('messages.testFailed'))
+      notify.error(t('messages.testFailed'))
     }
   }
 
@@ -725,8 +723,6 @@ function AppContent() {
         onConfirm={confirmDialog.onConfirm}
         variant={confirmDialog.variant}
       />
-
-      <Toaster />
     </div>
   )
 }
@@ -734,7 +730,9 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="kiro-theme">
-      <AppContent />
+      <NotificationProvider>
+        <AppContent />
+      </NotificationProvider>
     </ThemeProvider>
   )
 }

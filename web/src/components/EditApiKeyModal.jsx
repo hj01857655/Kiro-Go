@@ -5,7 +5,6 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Switch } from './ui/switch'
 import { Key, Loader2, Save } from 'lucide-react'
-import { toast } from 'sonner'
 
 export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, onSuccess }) {
   const [name, setName] = useState('')
@@ -25,7 +24,7 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
 
   const handleSave = async () => {
     if (!name.trim()) {
-      toast.error('请输入密钥名称')
+      notify.error('请输入密钥名称')
       return
     }
 
@@ -46,14 +45,14 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
       })
       const data = await res.json()
       if (res.ok) {
-        toast.success('保存成功')
+        notify.success('保存成功')
         onSuccess()
         onOpenChange(false)
       } else {
-        toast.error('保存失败: ' + (data.error || '未知错误'))
+        notify.error('保存失败: ' + (data.error || '未知错误'))
       }
     } catch (e) {
-      toast.error('保存失败')
+      notify.error('保存失败')
     } finally {
       setLoading(false)
     }

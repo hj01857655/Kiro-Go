@@ -9,7 +9,6 @@ import {
   TrendingUp, Shield, Server, Hash, DollarSign,
   AlertCircle, CheckCircle2, Clock, Zap
 } from 'lucide-react'
-import { toast } from 'sonner'
 
 export default function AccountDetailModal({ open, onOpenChange, account, password, onRefresh }) {
   const [overageLoading, setOverageLoading] = useState(false)
@@ -29,14 +28,14 @@ export default function AccountDetailModal({ open, onOpenChange, account, passwo
       })
 
       if (res.ok) {
-        toast.success(enabled ? '超额计费已启用' : '超额计费已关闭')
+        notify.success(enabled ? '超额计费已启用' : '超额计费已关闭')
         if (onRefresh) onRefresh()
       } else {
         const data = await res.json()
-        toast.error(data.error || '操作失败')
+        notify.error(data.error || '操作失败')
       }
     } catch (e) {
-      toast.error('操作失败')
+      notify.error('操作失败')
     } finally {
       setOverageLoading(false)
     }
