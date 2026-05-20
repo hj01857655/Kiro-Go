@@ -3565,11 +3565,13 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	// 如果配额使用率 >= 99%，自动禁用账户（除非允许超额使用）
+	accountDisabled := false
 	if usagePercent >= 0.99 && account.Enabled && !account.AllowOverage {
 		logger.Warnf("[AutoDisable] Account %s quota exhausted (%.1f%%), auto-disabling", account.Email, usagePercent*100)
 		if err := config.DisableAccount(id, fmt.Sprintf("Quota exhausted (%.1f%%)", usagePercent*100)); err != nil {
 			logger.Errorf("[AutoDisable] Failed to disable account %s: %v", account.Email, err)
 		} else {
+			accountDisabled = true
 			config.AddAuditLog(config.AuditLog{
 				Action:  "account.auto_disable",
 				Level:   "warning",
@@ -3588,7 +3590,10 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 	h.pool.Reload()
 
 	// 获取完整的账户数据（包括运行时统计）
-	accounts = config.GetAccounts()
+	// 如果账户被自动禁用，需要重新从配置中获取最新状态
+	if accountDisabled {
+		accounts = config.GetAccounts()
+	}
 	poolAccounts := h.pool.GetAllAccounts()
 
 	var fullAccount *config.Account
