@@ -103,10 +103,10 @@ export default function AccountsPanel({
   const selectedIds = selectedAccounts
   const setSelectedIds = onSelectedAccountsChange || (() => {})
 
-  const handleAction = async (id, action) => {
-    setActionLoading({ ...actionLoading, [id]: action })
+  const handleAction = async (id, actionType, action) => {
+    setActionLoading(prev => ({ ...prev, [id]: actionType }))
     await action()
-    setActionLoading({ ...actionLoading, [id]: null })
+    setActionLoading(prev => ({ ...prev, [id]: null }))
   }
 
   const toggleSelect = (id) => {
@@ -713,7 +713,7 @@ export default function AccountsPanel({
                       <Button
                         size="icon"
                         variant="outline"
-                        onClick={() => handleAction(account.id, () => onToggle(account.id, account.enabled))}
+                        onClick={() => handleAction(account.id, 'toggle', () => onToggle(account.id, account.enabled))}
                         disabled={actionLoading[account.id] === 'toggle'}
                         className={`h-7 w-7 border border-border btn-scale ${
                           account.enabled
@@ -731,7 +731,7 @@ export default function AccountsPanel({
                       <Button
                         size="icon"
                         variant="outline"
-                        onClick={() => handleAction(account.id, () => onRefreshAccount(account.id))}
+                        onClick={() => handleAction(account.id, 'refresh', () => onRefreshAccount(account.id))}
                         disabled={actionLoading[account.id] === 'refresh'}
                         className="h-7 w-7 border border-border hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 btn-scale"
                         title={t('accounts.actions.refreshInfo')}
