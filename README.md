@@ -3,6 +3,9 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Fork](https://img.shields.io/badge/Fork-Quorinex%2FKiro--Go-blue?style=flat&logo=github)](https://github.com/Quorinex/Kiro-Go)
+
+> **Fork notice:** This is a fork of [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go). Upstream changes are merged from there.
 
 Convert Kiro accounts to OpenAI / Anthropic compatible API service.
 
