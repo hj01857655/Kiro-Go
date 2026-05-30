@@ -114,3 +114,66 @@ export const getOverageRate = (account) => {
   const breakdown = getBreakdown(account)
   return breakdown?.overageRate ?? 0
 }
+
+// 后端把用量数据摊平成顶层字段（usageCurrent/usageLimit/overage*/trial*），
+// 但面板组件读的是嵌套的 account.usageData.usageBreakdownList[0] 结构（旧模型）。
+// 这里从扁平字段合成一份 usageData 视图模型，把数据线接通。
+// 后端扁平字段仍是唯一数据源，不改后端；货币/精度等被扁平化丢弃的字段用合理默认值兜底。
+export const normalizeAccount = (account) => {
+  if (!account || account.usageData) return account
+
+  // 没刷新过（无任何用量信息）的账号不合成，保持与旧版"刷新后才有 breakdown"一致
+  const hasUsage =
+    (account.usageLimit ?? 0) > 0 ||
+    (account.usageCurrent ?? 0) > 0 ||
+    (account.currentOverages ?? 0) > 0 ||
+    !!account.trialStatus
+  if (!hasUsage) return account
+
+  const resetEpoch = account.nextResetDate
+    ? Math.floor(new Date(`${account.nextResetDate}T00:00:00Z`).getTime() / 1000)
+    : null
+
+  const breakdown = {
+    resourceType: 'AGENTIC_REQUEST',
+    currentUsage: account.usageCurrent ?? 0,
+    currentUsageWithPrecision: account.usageCurrent ?? 0,
+    usageLimit: account.usageLimit ?? 0,
+    usageLimitWithPrecision: account.usageLimit ?? 0,
+    currency: 'USD',
+    overageRate: account.overageRate ?? 0,
+    overageCap: account.overageCap ?? 0,
+    overageCapWithPrecision: account.overageCap ?? 0,
+    currentOverages: account.currentOverages ?? 0,
+    currentOveragesWithPrecision: account.currentOverages ?? 0,
+    // 主模型里 currentOverages 即为本期已产生的超额费用（USD）
+    overageCharges: account.currentOverages ?? 0,
+    nextDateReset: resetEpoch,
+    bonuses: [],
+  }
+
+  if (account.trialStatus) {
+    breakdown.freeTrialInfo = {
+      freeTrialStatus: account.trialStatus,
+      currentUsage: account.trialUsageCurrent ?? 0,
+      usageLimit: account.trialUsageLimit ?? 0,
+      freeTrialExpiry: account.trialExpiresAt || null,
+    }
+  }
+
+  return {
+    ...account,
+    usageData: {
+      subscriptionInfo: {
+        type: account.subscriptionType || '',
+        subscriptionTitle: account.subscriptionTitle || '',
+        overageCapability: account.overageCapability || '',
+      },
+      overageConfiguration: account.overageStatus
+        ? { overageStatus: account.overageStatus }
+        : undefined,
+      usageBreakdownList: [breakdown],
+      userInfo: { email: account.email, userId: account.userId },
+    },
+  }
+}

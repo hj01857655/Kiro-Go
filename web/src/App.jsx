@@ -17,6 +17,7 @@ import EditApiKeyModal from './components/EditApiKeyModal'
 import ConfirmDialog from './components/ConfirmDialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Button } from './components/ui/button'
+import { normalizeAccount } from './lib/accountStats'
 import {
   NavigationMenu,
   NavigationMenuList,
@@ -117,7 +118,7 @@ function AppContent() {
       })
       if (res.ok) {
         const data = await res.json()
-        setAccounts(data)
+        setAccounts(Array.isArray(data) ? data.map(normalizeAccount) : [])
       }
     } catch (e) {
       console.error('Failed to load accounts:', e)
@@ -197,14 +198,10 @@ function AppContent() {
         headers: { 'X-Admin-Password': password }
       })
       if (res.ok) {
-        const data = await res.json()
-        // 后端现在返回 { success: true, account: {...} }，包含完整的账户数据
-        if (data.success && data.account) {
-          setAccounts(prev => prev.map(acc =>
-            acc.id === id ? data.account : acc
-          ))
-          notify.success(t('messages.refreshSuccess'))
-        }
+        // 刷新接口返回的是扁平的 AccountInfo（非完整账号），
+        // 直接重新拉取列表，拿到规范化后的完整记录更新卡片。
+        await loadAccounts()
+        notify.success(t('messages.refreshSuccess'))
       } else {
         notify.error(t('messages.refreshFailed'))
       }
@@ -375,7 +372,7 @@ function AppContent() {
       })
       if (res.ok) {
         const data = await res.json()
-        setAccountDetail(data)
+        setAccountDetail(normalizeAccount(data))
         setDetailOpen(true)
       } else {
         notify.error(t('messages.loadDetailError'))
