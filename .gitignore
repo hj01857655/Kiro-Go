@@ -13,6 +13,7 @@ data/
 # Frontend
 web/node_modules/
 web/dist/
+web/.vite/
 web/package-lock.json
 
 # Temporary files
