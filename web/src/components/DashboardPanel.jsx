@@ -213,7 +213,7 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
                   )}
                 </div>
               </div>
-              <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg">
+              <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 rounded-md flex items-center justify-center shadow-lg">
                 <TrendingUp className="w-7 h-7 text-white" />
               </div>
             </div>
