@@ -11,10 +11,12 @@
 package config
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -240,12 +242,20 @@ var (
 	cfg     *Config
 	cfgLock sync.RWMutex
 	cfgPath string
+
+	// Log file paths, derived from the config directory in Init.
+	auditLogPath   string
+	requestLogPath string
 )
 
 // Init initializes the configuration system with the specified file path.
 // If the file doesn't exist, a default configuration is created.
 func Init(path string) error {
 	cfgPath = path
+	// Audit and request logs live alongside the config file.
+	dir := filepath.Dir(path)
+	auditLogPath = filepath.Join(dir, "audit.log")
+	requestLogPath = filepath.Join(dir, "request.log")
 	return Load()
 }
 
@@ -1002,4 +1012,165 @@ func defaultSystemVersion() string {
 	default:
 		return "linux#6.6.87"
 	}
+}
+
+// ==================== Audit Logs Management ====================
+
+// AuditLog represents a single audit log entry for tracking administrative actions.
+type AuditLog struct {
+	ID        string                 `json:"id"`                  // Unique log entry identifier (UUID)
+	Timestamp int64                  `json:"timestamp"`           // Unix timestamp when action occurred
+	Action    string                 `json:"action"`              // Action type: account.create, account.update, etc.
+	Level     string                 `json:"level"`               // Log level: info, warning, error
+	User      string                 `json:"user,omitempty"`      // User who performed the action (admin/system)
+	Message   string                 `json:"message"`             // Human-readable description
+	Target    string                 `json:"target,omitempty"`    // Target resource (account email, key name, etc.)
+	IPAddress string                 `json:"ipAddress,omitempty"` // IP address of the request
+	UserAgent string                 `json:"userAgent,omitempty"` // User agent string
+	Changes   map[string]interface{} `json:"changes,omitempty"`   // Before/after values for updates
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`  // Additional context data
+}
+
+// RequestLog represents a single API request log entry.
+type RequestLog struct {
+	ID                       string `json:"id"`                                 // Unique log entry identifier (UUID)
+	Timestamp                int64  `json:"timestamp"`                          // Unix timestamp (ms) when request occurred
+	Method                   string `json:"method"`                             // HTTP method (POST)
+	Path                     string `json:"path"`                               // Request path (/v1/messages or /v1/chat/completions)
+	Model                    string `json:"model"`                              // Model name requested
+	AccountEmail             string `json:"accountEmail,omitempty"`             // Account email used for the request
+	StatusCode               int    `json:"statusCode"`                         // HTTP status code
+	Success                  bool   `json:"success"`                            // Whether request succeeded
+	ErrorMessage             string `json:"errorMessage,omitempty"`             // Error message if failed
+	InputTokens              int    `json:"inputTokens,omitempty"`              // Input tokens count
+	OutputTokens             int    `json:"outputTokens,omitempty"`             // Output tokens count
+	CacheCreationInputTokens int    `json:"cacheCreationInputTokens,omitempty"` // Cache creation tokens
+	CacheReadInputTokens     int    `json:"cacheReadInputTokens,omitempty"`     // Cache read tokens
+	Duration                 int64  `json:"duration"`                           // Request duration in milliseconds
+	IPAddress                string `json:"ipAddress,omitempty"`                // Client IP address
+	UserAgent                string `json:"userAgent,omitempty"`                // User agent string
+	Stream                   bool   `json:"stream"`                             // Whether request was streaming
+}
+
+// GetAuditLogs returns audit logs from file (up to 1000 most recent, newest-first).
+func GetAuditLogs() []AuditLog {
+	file, err := os.Open(auditLogPath)
+	if err != nil {
+		return []AuditLog{}
+	}
+	defer file.Close()
+
+	var logs []AuditLog
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var log AuditLog
+		if err := json.Unmarshal(scanner.Bytes(), &log); err == nil {
+			logs = append(logs, log)
+		}
+	}
+
+	const maxLogs = 1000
+	if len(logs) > maxLogs {
+		logs = logs[len(logs)-maxLogs:]
+	}
+	// Reverse so the newest entries come first.
+	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+		logs[i], logs[j] = logs[j], logs[i]
+	}
+	return logs
+}
+
+// AddAuditLog appends a new audit log entry to the audit.log file.
+func AddAuditLog(log AuditLog) error {
+	if log.ID == "" {
+		log.ID = GenerateMachineId()
+	}
+	if log.Timestamp == 0 {
+		log.Timestamp = time.Now().Unix()
+	}
+
+	file, err := os.OpenFile(auditLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(append(data, '\n'))
+	return err
+}
+
+// ClearAuditLogs removes the audit log file.
+func ClearAuditLogs() error {
+	if err := os.Remove(auditLogPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// ==================== Request Logs Management ====================
+
+// GetRequestLogs reads request logs from request.log and returns them
+// newest-first (up to the 10000 most recent entries).
+func GetRequestLogs() []RequestLog {
+	var logs []RequestLog
+	file, err := os.Open(requestLogPath)
+	if err != nil {
+		return logs
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var log RequestLog
+		if err := json.Unmarshal(scanner.Bytes(), &log); err == nil {
+			logs = append(logs, log)
+		}
+	}
+
+	const maxLogs = 10000
+	if len(logs) > maxLogs {
+		logs = logs[len(logs)-maxLogs:]
+	}
+	// Reverse so the newest entries come first.
+	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+		logs[i], logs[j] = logs[j], logs[i]
+	}
+	return logs
+}
+
+// AddRequestLog appends a new request log entry to the request.log file.
+func AddRequestLog(log RequestLog) error {
+	if log.ID == "" {
+		log.ID = GenerateMachineId()
+	}
+	if log.Timestamp == 0 {
+		log.Timestamp = time.Now().UnixMilli()
+	}
+
+	file, err := os.OpenFile(requestLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := json.Marshal(log)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(append(data, '\n'))
+	return err
+}
+
+// ClearRequestLogs removes the request log file.
+func ClearRequestLogs() error {
+	if err := os.Remove(requestLogPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
