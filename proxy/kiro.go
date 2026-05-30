@@ -329,7 +329,9 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			if account != nil {
 				accountEmail = account.Email
 			}
-			logger.Warnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail, err)
+			if shouldLogProfileArnError(accountEmail) {
+				logger.Warnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail, err)
+			}
 		}
 	}
 
@@ -804,4 +806,24 @@ func extractEventType(headers []byte) string {
 		}
 	}
 	return ""
+}
+
+// profileArnLogCache 缓存每个账号上次记录 ProfileArn 解析失败的时间，
+// 避免对同一账号持续失败时被日志风暴刷屏。
+var profileArnLogCache sync.Map
+
+// shouldLogProfileArnError 判断当前是否应该记录该账号的 ProfileArn 失败日志。
+// 同一邮箱 5 分钟内只记录一次（首次失败仍记录），无效邮箱则总是记录。
+func shouldLogProfileArnError(email string) bool {
+	if email == "" || email == "<nil>" {
+		return true
+	}
+	now := time.Now()
+	if lastTime, ok := profileArnLogCache.Load(email); ok {
+		if now.Sub(lastTime.(time.Time)) < 5*time.Minute {
+			return false
+		}
+	}
+	profileArnLogCache.Store(email, now)
+	return true
 }
