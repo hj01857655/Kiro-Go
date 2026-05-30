@@ -2,8 +2,19 @@
 /kiro-go
 /kiro-go.exe
 *.exe
+*.exe~
 *.test
 *.out
+
+# Dependencies
+node_modules/
+
+# Frontend build output / cache
+web/dist/
+web/.vite/
+
+# Codegraph index
+.codegraph/
 
 # Runtime data
 /data/
