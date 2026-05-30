@@ -267,11 +267,12 @@ func Load() error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create default configuration.
-			// Binds to 0.0.0.0 by default for Docker/container compatibility.
+			// Binds to 127.0.0.1 by default (local only) for safety; set host
+			// explicitly (config or env) to 0.0.0.0 for Docker/container exposure.
 			cfg = &Config{
 				Password:      "changeme",
 				Port:          8080,
-				Host:          "0.0.0.0",
+				Host:          "127.0.0.1",
 				RequireApiKey: false,
 				Accounts:      []Account{},
 			}

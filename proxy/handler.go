@@ -9,6 +9,8 @@ import (
 	"kiro-go/logger"
 	"kiro-go/pool"
 	"net/http"
+	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -3566,13 +3568,25 @@ func (h *Handler) apiGetAccountModelsCached(w http.ResponseWriter, r *http.Reque
 
 // ==================== 静态文件服务 ====================
 
+// webDir 是前端构建产物目录（Vite 输出到 web/dist，base 配置为 /admin/）。
+const webDir = "web/dist"
+
 func (h *Handler) serveAdminPage(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "web/index.html")
+	http.ServeFile(w, r, webDir+"/index.html")
 }
 
 func (h *Handler) serveStaticFile(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/admin/")
-	http.ServeFile(w, r, "web/"+path)
+	// 去掉 /admin/ 前缀，并用 path.Clean 规整，防止 ../ 路径穿越。
+	rel := strings.TrimPrefix(r.URL.Path, "/admin/")
+	cleaned := path.Clean("/" + rel) // 保证以 / 开头，清除 ../
+	full := webDir + cleaned
+
+	// 文件不存在时回退到 index.html，交给前端 SPA 路由处理。
+	if info, err := os.Stat(full); err != nil || info.IsDir() {
+		http.ServeFile(w, r, webDir+"/index.html")
+		return
+	}
+	http.ServeFile(w, r, full)
 }
 
 // apiGetThinkingConfig 获取 thinking 配置
