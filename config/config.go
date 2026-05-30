@@ -1067,6 +1067,54 @@ func ClearAuditLogs() error {
 	return nil
 }
 
+// ==================== System Log Sink ====================
+//
+// AddSystemLog bridges the logger package's runtime output (INFO/WARN/ERROR)
+// into the same store the admin "Global Logs" panel reads, so operators see
+// backend runtime logs alongside management-audit entries.
+//
+// Writes are asynchronous and bounded: a background goroutine drains a buffered
+// channel and appends to audit.log. If the buffer is full (e.g. a burst of
+// logging), new entries are dropped rather than blocking the caller — logging
+// must never stall the proxy request hot path.
+
+const systemLogBuffer = 512
+
+var (
+	systemLogCh   chan AuditLog
+	systemLogOnce sync.Once
+)
+
+func startSystemLogWorker() {
+	systemLogOnce.Do(func() {
+		systemLogCh = make(chan AuditLog, systemLogBuffer)
+		go func() {
+			for entry := range systemLogCh {
+				_ = AddAuditLog(entry)
+			}
+		}()
+	})
+}
+
+// AddSystemLog records a runtime log line (from the logger package) into the
+// shared log store. level is "debug" | "info" | "warning" | "error".
+// Non-blocking: drops the entry if the async buffer is full.
+func AddSystemLog(level, message string) {
+	startSystemLogWorker()
+	entry := AuditLog{
+		Timestamp: time.Now().UnixMilli(),
+		Action:    "system.log",
+		Level:     level,
+		User:      "system",
+		Message:   message,
+	}
+	select {
+	case systemLogCh <- entry:
+	default:
+		// buffer full — drop to avoid blocking the logging caller
+	}
+}
+
 // ==================== Request Logs Management ====================
 
 // GetRequestLogs reads request logs from request.log and returns them
@@ -1139,7 +1187,8 @@ func ClearRequestLogs() error {
 //	---
 //
 // 失败时静默：不能因为日志写入失败影响主请求流程。
-// 调用方应该只在错误响应时调用，避免日志过大。
+// 用途：仅在非 200（上游错误）响应时调用，把完整原始 body 留档便于排查；
+// 成功响应不写此文件，避免日志无意义增长。
 func AppendUpstreamLog(endpoint string, statusCode int, body string) {
 	if upstreamLogPath == "" {
 		return

@@ -8,7 +8,7 @@
     "accounts": "Accounts",
     "apiKeys": "API Keys",
     "logs": "Request Logs",
-    "auditLogs": "Audit Logs",
+    "auditLogs": "Global Logs",
     "settings": "Settings"
   },
   "login": {
@@ -256,7 +256,7 @@
     }
   },
   "auditLogs": {
-    "title": "Audit Logs",
+    "title": "Global Logs",
     "total": "Total Records",
     "error": "Error",
     "warning": "Warning",
@@ -269,11 +269,11 @@
     },
     "refresh": "Refresh",
     "clear": "Clear",
-    "clearConfirm": "Are you sure you want to clear all audit logs? This action cannot be undone.",
-    "noLogs": "No audit logs yet",
-    "loadError": "Failed to load audit logs",
-    "clearSuccess": "Audit logs cleared successfully",
-    "clearError": "Failed to clear audit logs"
+    "clearConfirm": "Are you sure you want to clear all global logs? This action cannot be undone.",
+    "noLogs": "No logs yet",
+    "loadError": "Failed to load global logs",
+    "clearSuccess": "Global logs cleared successfully",
+    "clearError": "Failed to clear global logs"
   },
   "settings": {
     "title": "System Settings",

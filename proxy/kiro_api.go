@@ -42,8 +42,14 @@ func GetUsageLimits(account *config.Account) (*UsageLimitsResponse, json.RawMess
 		return nil, nil, err
 	}
 	if resp.StatusCode != 200 {
+		// 非 200：完整原始 JSON 留档 upstream.log，并随 error 透传（调用方会打到日志），
+		// 便于排查上游错误。
+		config.AppendUpstreamLog("getUsageLimits", resp.StatusCode, string(body))
 		return nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
+
+	// 200 成功：不再打印/留档完整 JSON（调用方只打一行简提，避免每 30 分钟刷屏）。
+	// 原始响应仍通过返回值存入 Account.UsageData，供面板按需解析。
 
 	var result UsageLimitsResponse
 	if err := json.Unmarshal(body, &result); err != nil {

@@ -8,7 +8,7 @@
     "accounts": "账户管理",
     "apiKeys": "API密钥",
     "logs": "请求日志",
-    "auditLogs": "审计日志",
+    "auditLogs": "全局日志",
     "settings": "系统设置"
   },
   "login": {
@@ -256,7 +256,7 @@
     }
   },
   "auditLogs": {
-    "title": "审计日志",
+    "title": "全局日志",
     "total": "总记录数",
     "error": "错误",
     "warning": "警告",
@@ -269,11 +269,11 @@
     },
     "refresh": "刷新",
     "clear": "清空",
-    "clearConfirm": "确定要清空所有审计日志吗？此操作无法撤销。",
-    "noLogs": "暂无审计记录",
-    "loadError": "加载审计日志失败",
-    "clearSuccess": "审计日志已清空",
-    "clearError": "清空审计日志失败"
+    "clearConfirm": "确定要清空所有全局日志吗？此操作无法撤销。",
+    "noLogs": "暂无日志记录",
+    "loadError": "加载全局日志失败",
+    "clearSuccess": "全局日志已清空",
+    "clearError": "清空全局日志失败"
   },
   "settings": {
     "title": "系统设置",

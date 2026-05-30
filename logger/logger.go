@@ -11,6 +11,7 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -35,7 +36,31 @@ var (
 	infoLog  = log.New(os.Stdout, "INFO  ", log.LstdFlags)
 	warnLog  = log.New(os.Stderr, "WARN  ", log.LstdFlags)
 	errorLog = log.New(os.Stderr, "ERROR ", log.LstdFlags)
+
+	// sink, when set, receives a copy of every emitted log line so a consumer
+	// (e.g. the admin panel store) can persist it. It must never block: the
+	// registered function is expected to hand off asynchronously. The logger
+	// package deliberately does NOT import config, to avoid an import cycle;
+	// main.go wires the sink at startup.
+	sink atomic.Pointer[func(level, message string)]
 )
+
+// SetSink registers a function that receives every log line (level + formatted
+// message). Pass nil to detach. The callback must not block the caller.
+func SetSink(fn func(level, message string)) {
+	if fn == nil {
+		sink.Store(nil)
+		return
+	}
+	sink.Store(&fn)
+}
+
+// emitSink forwards a line to the registered sink, if any.
+func emitSink(level, message string) {
+	if p := sink.Load(); p != nil {
+		(*p)(level, message)
+	}
+}
 
 func init() {
 	currentLevel.Store(int32(LevelInfo))
@@ -109,33 +134,43 @@ func enabled(l Level) bool {
 // Debugf logs a formatted message at DEBUG level.
 func Debugf(format string, v ...interface{}) {
 	if enabled(LevelDebug) {
-		debugLog.Printf(format, v...)
+		msg := fmt.Sprintf(format, v...)
+		debugLog.Print(msg)
+		emitSink("debug", msg)
 	}
 }
 
 // Infof logs a formatted message at INFO level.
 func Infof(format string, v ...interface{}) {
 	if enabled(LevelInfo) {
-		infoLog.Printf(format, v...)
+		msg := fmt.Sprintf(format, v...)
+		infoLog.Print(msg)
+		emitSink("info", msg)
 	}
 }
 
 // Warnf logs a formatted message at WARN level.
 func Warnf(format string, v ...interface{}) {
 	if enabled(LevelWarn) {
-		warnLog.Printf(format, v...)
+		msg := fmt.Sprintf(format, v...)
+		warnLog.Print(msg)
+		emitSink("warning", msg)
 	}
 }
 
 // Errorf logs a formatted message at ERROR level.
 func Errorf(format string, v ...interface{}) {
 	if enabled(LevelError) {
-		errorLog.Printf(format, v...)
+		msg := fmt.Sprintf(format, v...)
+		errorLog.Print(msg)
+		emitSink("error", msg)
 	}
 }
 
 // Fatalf logs a formatted message at ERROR level and terminates the process.
 func Fatalf(format string, v ...interface{}) {
-	errorLog.Printf(format, v...)
+	msg := fmt.Sprintf(format, v...)
+	errorLog.Print(msg)
+	emitSink("error", msg)
 	os.Exit(1)
 }

@@ -46,6 +46,11 @@ func main() {
 	// Initialize log level: LOG_LEVEL env var takes priority over config, defaulting to "info".
 	logger.Init(config.GetLogLevel())
 
+	// Mirror runtime logs (INFO/WARN/ERROR) into the shared log store so the
+	// admin "Global Logs" panel shows backend runtime logs alongside audit
+	// entries. The sink is asynchronous and drops on overflow (see AddSystemLog).
+	logger.SetSink(config.AddSystemLog)
+
 	// 环境变量覆盖密码
 	if envPassword := os.Getenv("ADMIN_PASSWORD"); envPassword != "" {
 		if err := config.SetPassword(envPassword); err != nil {
