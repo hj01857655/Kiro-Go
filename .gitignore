@@ -1,34 +1,45 @@
-# Binaries
+# Binaries / build artifacts
+/kiro-go
+/kiro-go.exe
+kiro-go
 *.exe
 *.exe~
-kiro-go
+*.test
+*.out
 
-# Data directory
-data/
-
-# IDE
-.vscode/
-.idea/
-
-# Frontend
+# Dependencies
+node_modules/
 web/node_modules/
-web/dist/
-web/.vite/
+package-lock.json
 web/package-lock.json
 
-# Temporary files
+# Frontend build output / cache
+web/dist/
+web/.vite/
+
+# Codegraph index
+.codegraph/
+
+# Runtime data
+/data/
+data/
 *.log
 *.tmp
 *.swp
 *~
 
-# OS
+# Editor / OS
+.vscode/
+.idea/
+.claude/
+.kiro/
+hooks/
 .DS_Store
 Thumbs.db
 
-# Node modules
-node_modules/
-package-lock.json
-.kiro/
-hooks/
-.codegraph/
+# Zeabur local CLI context (contains personal project/service IDs)
+.zeabur/
+
+# Local backups / scratch
+backup*/
+PR-*.md
