@@ -8,3 +8,8 @@ docker-compose.yml
 README.md
 README_CN.md
 *.log
+# 前端依赖与产物：node_modules 体积大，dist 在前端构建阶段重新生成，
+# 都不应进入构建上下文（否则会拖慢构建并污染最终镜像）。
+web/node_modules
+web/dist
+web/.vite
