@@ -546,7 +546,8 @@ func ClearAuditLogs() error {
 
 // ==================== Request Logs Management ====================
 
-// GetRequestLogs reads request logs from request.log file (up to 10000 most recent entries)
+// GetRequestLogs reads request logs from request.log file and returns them
+// newest-first (up to the 10000 most recent entries).
 func GetRequestLogs() []RequestLog {
 	var logs []RequestLog
 	file, err := os.Open(requestLogPath)
@@ -556,15 +557,26 @@ func GetRequestLogs() []RequestLog {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	// Allow large log lines (default Scanner limit is 64KB)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		var log RequestLog
 		if err := json.Unmarshal(scanner.Bytes(), &log); err == nil {
 			logs = append(logs, log)
 		}
-		if len(logs) >= 10000 {
-			break
-		}
 	}
+
+	// Keep only the most recent 10000 entries (newest are at the end of the file)
+	const maxLogs = 10000
+	if len(logs) > maxLogs {
+		logs = logs[len(logs)-maxLogs:]
+	}
+
+	// Reverse so the newest entries come first
+	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+		logs[i], logs[j] = logs[j], logs[i]
+	}
+
 	return logs
 }
 
