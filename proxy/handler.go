@@ -2531,6 +2531,8 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 
 	// 只更新传入的字段
 	oldEnabled := existing.Enabled
+	tokenUpdated := false
+
 	if v, ok := updates["enabled"].(bool); ok {
 		existing.Enabled = v
 	}
@@ -2546,11 +2548,25 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 	if v, ok := updates["proxyURL"].(string); ok {
 		existing.ProxyURL = v
 	}
+	// 允许通过 admin 接口更新 token（手动从 builder.id/iam 拿到新的 token 写入）
+	if v, ok := updates["accessToken"].(string); ok && v != "" {
+		existing.AccessToken = v
+		tokenUpdated = true
+	}
+	if v, ok := updates["refreshToken"].(string); ok && v != "" {
+		existing.RefreshToken = v
+		tokenUpdated = true
+	}
 
 	if err := config.UpdateAccount(id, *existing); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+
+	// token 被更新时同步到内存 pool，避免后续请求继续使用过期 token
+	if tokenUpdated {
+		h.pool.UpdateToken(id, existing.AccessToken, existing.RefreshToken, existing.ExpiresAt)
 	}
 
 	h.pool.Reload()
