@@ -1,6 +1,7 @@
-# Build artifacts
+# Binaries / build artifacts
 /kiro-go
 /kiro-go.exe
+kiro-go
 *.exe
 *.exe~
 *.test
@@ -8,6 +9,7 @@
 
 # Dependencies
 node_modules/
+web/node_modules/
 package-lock.json
 web/package-lock.json
 
@@ -20,12 +22,18 @@ web/.vite/
 
 # Runtime data
 /data/
+data/
 *.log
+*.tmp
+*.swp
+*~
 
 # Editor / OS
-.idea/
 .vscode/
+.idea/
 .claude/
+.kiro/
+hooks/
 .DS_Store
 Thumbs.db
 
