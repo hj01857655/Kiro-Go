@@ -3156,12 +3156,13 @@ func (h *Handler) apiImportCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取用户信息
-	email, _, _ := auth.GetUserInfo(accessToken)
+	email, userID, _ := auth.GetUserInfo(accessToken)
 
 	// 创建账号
 	account := config.Account{
 		ID:           auth.GenerateAccountID(),
 		Email:        email,
+		UserId:       userID,
 		AccessToken:  accessToken,
 		RefreshToken: req.RefreshToken,
 		ClientID:     req.ClientID,
