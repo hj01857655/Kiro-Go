@@ -2678,7 +2678,7 @@ func (h *Handler) apiSetAccountOverage(w http.ResponseWriter, r *http.Request, i
 func (h *Handler) apiBatchAccounts(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs    []string `json:"ids"`
-		Action string   `json:"action"` // "enable", "disable", "refresh"
+		Action string   `json:"action"` // "enable", "disable", "refresh", "delete"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(400)
@@ -2773,6 +2773,23 @@ func (h *Handler) apiBatchAccounts(w http.ResponseWriter, r *http.Request) {
 			"success":   true,
 			"refreshed": successCount,
 			"failed":    failCount,
+		})
+
+	case "delete":
+		successCount := 0
+		failCount := 0
+		for _, id := range req.IDs {
+			if err := config.DeleteAccount(id); err != nil {
+				failCount++
+			} else {
+				successCount++
+			}
+		}
+		h.pool.Reload()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"deleted": successCount,
+			"failed":  failCount,
 		})
 
 	default:
