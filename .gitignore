@@ -8,6 +8,8 @@
 
 # Dependencies
 node_modules/
+package-lock.json
+web/package-lock.json
 
 # Frontend build output / cache
 web/dist/
