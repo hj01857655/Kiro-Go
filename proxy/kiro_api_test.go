@@ -40,7 +40,7 @@ func TestResolveProfileArnFetchesAndCachesProfile(t *testing.T) {
 		Region:       "us-east-1",
 		UsageCurrent: 7,
 	}
-	if _, err := config.AddAccount(account); err != nil {
+	if err := config.AddAccount(account); err != nil {
 		t.Fatalf("add account: %v", err)
 	}
 

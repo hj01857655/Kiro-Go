@@ -1,8 +1,6 @@
 package proxy
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +9,6 @@ import (
 	"kiro-go/logger"
 	"kiro-go/pool"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,130 +18,6 @@ import (
 )
 
 const tokenRefreshSkewSeconds int64 = 120
-
-// parseUsageData extracts display fields from raw UsageData JSON
-func parseUsageData(usageData json.RawMessage) map[string]interface{} {
-	result := map[string]interface{}{
-		"subscriptionType":  "",
-		"subscriptionTitle": "",
-		"usageCurrent":      float64(0),
-		"usageLimit":        float64(0),
-		"usagePercent":      float64(0),
-		"nextResetDate":     "",
-		"trialUsageCurrent": float64(0),
-		"trialUsageLimit":   float64(0),
-		"trialUsagePercent": float64(0),
-		"trialStatus":       "",
-		"trialExpiresAt":    int64(0),
-		"currentOverages":   float64(0),
-		"overageCap":        float64(0),
-		"overageCharges":    float64(0),
-		"overageRate":       float64(0),
-		"currency":          "",
-		"overageStatus":     "",
-	}
-
-	if len(usageData) == 0 {
-		return result
-	}
-
-	var response UsageLimitsResponse
-	if err := json.Unmarshal(usageData, &response); err != nil {
-		return result
-	}
-
-	// Parse subscription info
-	if response.SubscriptionInfo != nil {
-		// Use Type field (e.g., "Q_DEVELOPER_STANDALONE_PRO")
-		titleOrType := response.SubscriptionInfo.SubscriptionTitle
-		if titleOrType == "" {
-			titleOrType = response.SubscriptionInfo.Type
-		}
-		result["subscriptionType"] = parseSubscriptionType(titleOrType)
-		result["subscriptionTitle"] = response.SubscriptionInfo.SubscriptionTitle
-	}
-
-	// Find CREDIT or AGENTIC_REQUEST breakdown
-	var breakdown *UsageBreakdown
-	for i := range response.UsageBreakdownList {
-		rt := response.UsageBreakdownList[i].ResourceType
-		if rt == "CREDIT" || rt == "AGENTIC_REQUEST" {
-			breakdown = &response.UsageBreakdownList[i]
-			break
-		}
-	}
-	if breakdown == nil && len(response.UsageBreakdownList) > 0 {
-		breakdown = &response.UsageBreakdownList[0]
-	}
-
-	if breakdown != nil {
-		result["usageCurrent"] = breakdown.CurrentUsage
-		result["usageLimit"] = breakdown.UsageLimit
-		if breakdown.UsageLimit > 0 {
-			result["usagePercent"] = breakdown.CurrentUsage / breakdown.UsageLimit
-		}
-
-		// Parse overage info
-		result["currentOverages"] = breakdown.CurrentOverages
-		result["overageCap"] = breakdown.OverageCap
-		result["overageCharges"] = breakdown.OverageCharges
-		result["overageRate"] = breakdown.OverageRate
-		result["currency"] = breakdown.Currency
-
-		// Parse trial info
-		if breakdown.FreeTrialInfo != nil {
-			result["trialUsageCurrent"] = breakdown.FreeTrialInfo.CurrentUsage
-			result["trialUsageLimit"] = breakdown.FreeTrialInfo.UsageLimit
-			if breakdown.FreeTrialInfo.UsageLimit > 0 {
-				result["trialUsagePercent"] = breakdown.FreeTrialInfo.CurrentUsage / breakdown.FreeTrialInfo.UsageLimit
-			}
-			result["trialStatus"] = breakdown.FreeTrialInfo.FreeTrialStatus
-
-			if breakdown.FreeTrialInfo.FreeTrialExpiry != "" {
-				if ts, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Int64(); err == nil && ts > 0 {
-					result["trialExpiresAt"] = ts
-				} else if f, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Float64(); err == nil && f > 0 {
-					result["trialExpiresAt"] = int64(f)
-				}
-			}
-		}
-	}
-
-	// Parse reset date
-	if response.NextDateReset != "" {
-		dateStr := string(response.NextDateReset)
-		// Try parsing as ISO 8601 string first (e.g., "2026-06-01T00:00:00.000Z")
-		if t, err := time.Parse(time.RFC3339, dateStr); err == nil {
-			result["nextResetDate"] = t.Format("2006-01-02")
-		} else if ts, err := response.NextDateReset.Int64(); err == nil && ts > 0 {
-			result["nextResetDate"] = time.Unix(ts, 0).Format("2006-01-02")
-		} else if f, err := response.NextDateReset.Float64(); err == nil && f > 0 {
-			result["nextResetDate"] = time.Unix(int64(f), 0).Format("2006-01-02")
-		}
-	}
-
-	// Parse overage status
-	if response.OverageConfiguration != nil {
-		result["overageStatus"] = response.OverageConfiguration.OverageStatus
-	}
-
-	return result
-}
-
-// parseSubscriptionType extracts subscription tier from raw string
-func parseSubscriptionType(raw string) string {
-	upper := strings.ToUpper(raw)
-	if strings.Contains(upper, "PRO_PLUS") || strings.Contains(upper, "PROPLUS") {
-		return "PRO_PLUS"
-	}
-	if strings.Contains(upper, "POWER") {
-		return "POWER"
-	}
-	if strings.Contains(upper, "PRO") {
-		return "PRO"
-	}
-	return "FREE"
-}
 
 // Handler HTTP 处理器
 type Handler struct {
@@ -357,6 +230,8 @@ func NewHandler() *Handler {
 	go h.backgroundRefresh()
 	// 启动后台统计保存 (每30秒保存一次)
 	go h.backgroundStatsSaver()
+	// 清理过期的 stored responses（>30 天）
+	go purgeExpiredResponses(responsesDefaultTTL)
 	return h
 }
 
@@ -395,6 +270,7 @@ func (h *Handler) refreshAllAccounts() {
 			newAccessToken, newRefreshToken, newExpiresAt, profileArn, err := auth.RefreshToken(account)
 			if err != nil {
 				logger.Warnf("[BackgroundRefresh] Token refresh failed for %s: %v", account.Email, err)
+				h.handleAccountFailure(account, err)
 				continue
 			}
 			account.AccessToken = newAccessToken
@@ -418,70 +294,44 @@ func (h *Handler) refreshAllAccounts() {
 		}
 
 		config.UpdateAccountInfo(account.ID, *info)
-		logger.Infof("[BackgroundRefresh] Refreshed %s", account.Email)
+		logger.Infof("[BackgroundRefresh] Refreshed %s: %s %.1f/%.1f", account.Email, info.SubscriptionType, info.UsageCurrent, info.UsageLimit)
 	}
 	h.pool.Reload()
 }
 
-// extractApiKey 从请求中提取 API Key
-func (h *Handler) extractApiKey(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		return strings.TrimPrefix(authHeader, "Bearer ")
-	}
-	return r.Header.Get("X-Api-Key")
-}
-
-// validateManagedApiKey 验证新的 API Keys 管理系统中的密钥
-// 用于对话接口（/v1/messages, /v1/chat/completions）
-func (h *Handler) validateManagedApiKey(r *http.Request) bool {
-	// 如果没有要求 API Key，直接通过
-	if !config.IsApiKeyRequired() {
-		return true
-	}
-
-	providedKey := h.extractApiKey(r)
-	if providedKey == "" {
-		return false
-	}
-	return config.ValidateApiKeyHash(providedKey) != nil
-}
-
-// validateApiKey 验证旧的全局访问密钥
+// validateApiKey 验证 API Key（Bool 包装，旧签名仍被部分调用方使用）
 func (h *Handler) validateApiKey(r *http.Request) bool {
-	if !config.IsApiKeyRequired() {
-		return true
-	}
-
-	expectedKey := config.GetApiKey()
-	if expectedKey == "" {
-		return true
-	}
-
-	providedKey := h.extractApiKey(r)
-	return providedKey == expectedKey
+	_, err := h.authenticate(r)
+	return err == nil
 }
 
-// validateAnyApiKey 验证任意有效的 API Key（新系统或旧系统）
-func (h *Handler) validateAnyApiKey(r *http.Request) bool {
-	// 如果没有要求 API Key，直接通过
-	if !config.IsApiKeyRequired() {
-		return true
+// authenticateForClaude runs authenticate and writes a Claude-style error on failure.
+// Returns the request with the matched API key injected into context, or nil if auth failed.
+func (h *Handler) authenticateForClaude(w http.ResponseWriter, r *http.Request) *http.Request {
+	entry, err := h.authenticate(r)
+	if err != nil {
+		ae, _ := err.(*authError)
+		if ae == nil {
+			ae = newAuthError(http.StatusUnauthorized, "authentication_error", err.Error())
+		}
+		h.sendClaudeError(w, ae.status, ae.code, ae.message)
+		return nil
 	}
+	return withApiKeyContext(r, entry)
+}
 
-	// 优先验证新系统的 API Keys
-	if h.validateManagedApiKey(r) {
-		return true
+// authenticateForOpenAI runs authenticate and writes an OpenAI-style error on failure.
+func (h *Handler) authenticateForOpenAI(w http.ResponseWriter, r *http.Request) *http.Request {
+	entry, err := h.authenticate(r)
+	if err != nil {
+		ae, _ := err.(*authError)
+		if ae == nil {
+			ae = newAuthError(http.StatusUnauthorized, "authentication_error", err.Error())
+		}
+		h.sendOpenAIError(w, ae.status, ae.code, ae.message)
+		return nil
 	}
-
-	// 回退到旧系统的全局访问密钥
-	expectedKey := config.GetApiKey()
-	if expectedKey != "" {
-		providedKey := h.extractApiKey(r)
-		return providedKey == expectedKey
-	}
-
-	return false
+	return withApiKeyContext(r, entry)
 }
 
 // ServeHTTP 路由分发
@@ -504,32 +354,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 路由
 	switch {
-	// 对话接口（使用 API Keys 管理系统验证）
+	// API 端点（需要验证 API Key）
 	case path == "/v1/messages" || path == "/messages" || path == "/anthropic/v1/messages":
-		if !h.validateManagedApiKey(r) {
-			h.sendClaudeError(w, 401, "authentication_error", "Invalid or missing API key")
+		ar := h.authenticateForClaude(w, r)
+		if ar == nil {
 			return
 		}
-		h.handleClaudeMessages(w, r)
+		h.handleClaudeMessages(w, ar)
 	case path == "/v1/messages/count_tokens" || path == "/messages/count_tokens":
-		if !h.validateManagedApiKey(r) {
-			h.sendClaudeError(w, 401, "authentication_error", "Invalid or missing API key")
+		ar := h.authenticateForClaude(w, r)
+		if ar == nil {
 			return
 		}
-		h.handleCountTokens(w, r)
+		h.handleCountTokens(w, ar)
 	case path == "/v1/chat/completions" || path == "/chat/completions":
-		if !h.validateManagedApiKey(r) {
-			h.sendOpenAIError(w, 401, "authentication_error", "Invalid or missing API key")
+		ar := h.authenticateForOpenAI(w, r)
+		if ar == nil {
 			return
 		}
-		h.handleOpenAIChat(w, r)
+		h.handleOpenAIChat(w, ar)
+	case path == "/v1/responses" || path == "/responses":
+		ar := h.authenticateForOpenAI(w, r)
+		if ar == nil {
+			return
+		}
+		h.handleOpenAIResponses(w, ar)
 	case path == "/v1/models" || path == "/models":
-		if !h.validateApiKey(r) {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(401)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid or missing API key"})
-			return
-		}
 		h.handleModels(w, r)
 	case path == "/api/event_logging/batch":
 		// Claude Code 遥测端点 - 直接返回 200 OK
@@ -548,7 +398,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/health" || path == "/":
 		h.handleHealth(w, r)
 
-	// 统计端点（使用全局访问密钥验证）
+	// 统计端点（需要 API Key 鉴权）
 	case path == "/v1/stats":
 		if !h.validateApiKey(r) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -716,12 +566,14 @@ func (h *Handler) refreshModelsCache() {
 		account := &accounts[i]
 		if err := h.ensureValidToken(account); err != nil {
 			logger.Warnf("[ModelsCache] Skip %s token refresh failed: %v", account.Email, err)
+			h.handleAccountFailure(account, err)
 			continue
 		}
 
 		models, err := ListAvailableModels(account)
 		if err != nil {
 			logger.Warnf("[ModelsCache] Failed to refresh for %s: %v", account.Email, err)
+			h.handleAccountFailure(account, err)
 			continue
 		}
 		// 缓存每账号可用模型，用于路由时过滤
@@ -951,20 +803,6 @@ func (h *Handler) handleClaudeMessagesInternal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// 获取账号（按模型过滤，优先选支持该模型的账号）
-	actualModel, _ := ParseModelAndThinking(req.Model, config.GetThinkingConfig().Suffix)
-	account := h.pool.GetNextForModel(actualModel)
-	if account == nil {
-		h.sendClaudeError(w, 503, "api_error", "No available accounts")
-		return
-	}
-
-	// 检查并刷新 token
-	if err := h.ensureValidToken(account); err != nil {
-		h.sendClaudeError(w, 503, "api_error", "Token refresh failed: "+err.Error())
-		return
-	}
-
 	// 解析模型和 thinking 模式
 	thinkingCfg := config.GetThinkingConfig()
 	actualModel, thinking := resolveClaudeThinkingMode(req.Model, req.Thinking, thinkingCfg.Suffix)
@@ -973,21 +811,21 @@ func (h *Handler) handleClaudeMessagesInternal(w http.ResponseWriter, r *http.Re
 	thinkingResponseOpts := resolveClaudeThinkingResponseOptions(req.Thinking, thinkingCfg.ClaudeFormat)
 	estimatedInputTokens := estimateClaudeRequestInputTokens(effectiveReq)
 	cacheProfile := h.promptCache.BuildClaudeProfile(effectiveReq, estimatedInputTokens)
-	cacheUsage := h.promptCache.Compute(account.ID, cacheProfile)
 
 	// 转换请求
 	kiroPayload := ClaudeToKiro(&req, thinking)
 
 	// Stream or non-stream
+	apiKeyID := apiKeyIDFromContext(r.Context())
 	if req.Stream {
-		h.handleClaudeStream(w, r, account, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheUsage, cacheProfile)
+		h.handleClaudeStream(w, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheProfile, apiKeyID)
 	} else {
-		h.handleClaudeNonStream(w, r, account, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheUsage, cacheProfile)
+		h.handleClaudeNonStream(w, kiroPayload, req.Model, thinking, thinkingResponseOpts, estimatedInputTokens, cacheProfile, apiKeyID)
 	}
 }
 
 // handleClaudeStream Claude 流式响应
-func (h *Handler) handleClaudeStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheUsage promptCacheUsage, cacheProfile *promptCacheProfile) {
+func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheProfile *promptCacheProfile, apiKeyID string) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1002,443 +840,430 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, r *http.Request, acc
 	thinkingFormat := thinkingOpts.Format
 
 	msgID := "msg_" + uuid.New().String()
-	var inputTokens, outputTokens int
-	var credits float64
-	var realInputTokens int
-	var toolUses []KiroToolUse
-	var nextContentIndex int
-	var rawContentBuilder strings.Builder
-	var rawThinkingBuilder strings.Builder
-	activeBlockIndex := -1
-	activeBlockType := ""
 	startInputTokens := estimatedInputTokens
+	excluded := make(map[string]bool)
+	var lastErr error
+	messageStarted := false
+	var messageStartUsage promptCacheUsage
 
-	closeActiveBlock := func() {
-		if activeBlockIndex < 0 {
+	ensureMessageStart := func() {
+		if messageStarted {
 			return
 		}
-		h.sendSSE(w, flusher, "content_block_stop", map[string]interface{}{
-			"type":  "content_block_stop",
-			"index": activeBlockIndex,
+		h.sendSSE(w, flusher, "message_start", map[string]interface{}{
+			"type": "message_start",
+			"message": map[string]interface{}{
+				"id":            msgID,
+				"type":          "message",
+				"role":          "assistant",
+				"content":       []interface{}{},
+				"model":         model,
+				"stop_reason":   nil,
+				"stop_sequence": nil,
+				"usage":         buildClaudeUsageMap(startInputTokens, 0, messageStartUsage, cacheProfile != nil),
+			},
 		})
-		activeBlockIndex = -1
-		activeBlockType = ""
+		messageStarted = true
 	}
 
-	startContentBlock := func(blockType string) {
-		if activeBlockType == blockType {
-			return
+	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
+		account := h.pool.GetNextForModelExcluding(model, excluded)
+		if account == nil {
+			break
 		}
-		closeActiveBlock()
-
-		idx := nextContentIndex
-		nextContentIndex++
-
-		if blockType == "thinking" {
-			h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
-				"type":  "content_block_start",
-				"index": idx,
-				"content_block": map[string]string{
-					"type":     "thinking",
-					"thinking": "",
-				},
-			})
-		} else {
-			h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
-				"type":  "content_block_start",
-				"index": idx,
-				"content_block": map[string]string{
-					"type": "text",
-					"text": "",
-				},
-			})
+		if err := h.ensureValidToken(account); err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			continue
 		}
+		cacheUsage := h.promptCache.Compute(account.ID, cacheProfile)
+		messageStartUsage = cacheUsage
 
-		activeBlockIndex = idx
-		activeBlockType = blockType
-	}
+		var inputTokens, outputTokens int
+		var credits float64
+		var realInputTokens int
+		var toolUses []KiroToolUse
+		var nextContentIndex int
+		var rawContentBuilder strings.Builder
+		var rawThinkingBuilder strings.Builder
+		activeBlockIndex := -1
+		activeBlockType := ""
 
-	// Thinking 标签解析状态
-	var textBuffer string
-	var inThinkingBlock bool
-	var dropTagThinking bool
-	var thinkingSource thinkingStreamSource
-
-	// 发送文本的辅助函数
-	// thinkingState: 0=普通内容, 1=thinking开始, 2=thinking中间, 3=thinking结束
-	sendText := func(text string, thinkingState int) {
-		if thinkingState == 0 {
-			// 普通内容
-			if text == "" {
+		closeActiveBlock := func() {
+			if activeBlockIndex < 0 {
 				return
 			}
-			startContentBlock("text")
-			h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
-				"type":  "content_block_delta",
+			h.sendSSE(w, flusher, "content_block_stop", map[string]interface{}{
+				"type":  "content_block_stop",
 				"index": activeBlockIndex,
-				"delta": map[string]string{"type": "text_delta", "text": text},
 			})
-			return
+			activeBlockIndex = -1
+			activeBlockType = ""
 		}
 
-		if !thinking {
-			return
-		}
-
-		switch thinkingFormat {
-		case "think":
-			var outputText string
-			switch thinkingState {
-			case 1:
-				outputText = "<think>" + text
-			case 2:
-				outputText = text
-			case 3:
-				outputText = text + "</think>"
-			}
-			if outputText == "" {
+		startContentBlock := func(blockType string) {
+			if activeBlockType == blockType {
 				return
 			}
-			startContentBlock("text")
-			h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
-				"type":  "content_block_delta",
-				"index": activeBlockIndex,
-				"delta": map[string]string{"type": "text_delta", "text": outputText},
-			})
-		case "reasoning_content":
-			if text == "" {
-				return
-			}
-			startContentBlock("text")
-			h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
-				"type":  "content_block_delta",
-				"index": activeBlockIndex,
-				"delta": map[string]string{"type": "text_delta", "text": text},
-			})
-		default:
-			if thinkingOpts.OmitDisplay {
-				if thinkingState == 1 {
-					startContentBlock("thinking")
-					return
-				}
-				if thinkingState == 3 {
-					if activeBlockType != "thinking" {
-						startContentBlock("thinking")
-					}
-					closeActiveBlock()
-				}
-				return
-			}
-			if thinkingState == 3 && text == "" {
-				if activeBlockType == "thinking" {
-					closeActiveBlock()
-				}
-				return
-			}
-			if text != "" {
-				startContentBlock("thinking")
-				h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
-					"type":  "content_block_delta",
-					"index": activeBlockIndex,
-					"delta": map[string]string{"type": "thinking_delta", "thinking": text},
-				})
-			}
-			if thinkingState == 3 && activeBlockType == "thinking" {
-				closeActiveBlock()
-			}
-		}
-	}
-
-	// 处理文本，解析 <thinking> 标签
-	var thinkingStarted bool
-	var eventThinkingOpen bool
-
-	processClaudeText := func(text string, isThinking bool, forceFlush bool) {
-		if isThinking && !thinking {
-			return
-		}
-
-		// 如果是 reasoningContentEvent，直接输出
-		if isThinking {
-			if !allowReasoningSource(&thinkingSource) {
-				return
-			}
-			if !thinkingStarted {
-				sendText(text, 1)
-				thinkingStarted = true
-				eventThinkingOpen = true
-			} else {
-				sendText(text, 2)
-			}
-			return
-		}
-
-		if eventThinkingOpen {
-			sendText("", 3)
-			eventThinkingOpen = false
-			thinkingStarted = false
-		}
-
-		textBuffer += text
-
-		for {
-			if !inThinkingBlock {
-				thinkingStart := strings.Index(textBuffer, "<thinking>")
-				if thinkingStart != -1 {
-					if thinkingStart > 0 {
-						sendText(textBuffer[:thinkingStart], 0)
-					}
-					textBuffer = textBuffer[thinkingStart+10:]
-					inThinkingBlock = true
-					dropTagThinking = !allowTagSource(&thinkingSource)
-					thinkingStarted = false
-				} else if forceFlush || len([]rune(textBuffer)) > 50 {
-					// 使用 rune 切片来正确处理 Unicode 字符
-					runes := []rune(textBuffer)
-					safeLen := len(runes)
-					if !forceFlush {
-						safeLen = max(0, len(runes)-15)
-					}
-					if safeLen > 0 {
-						sendText(string(runes[:safeLen]), 0)
-						textBuffer = string(runes[safeLen:])
-					}
-					break
-				} else {
-					break
-				}
-			} else {
-				thinkingEnd := strings.Index(textBuffer, "</thinking>")
-				if thinkingEnd != -1 {
-					content := textBuffer[:thinkingEnd]
-					if !dropTagThinking {
-						if !thinkingStarted {
-							sendText(content, 1)
-							sendText("", 3)
-						} else {
-							sendText(content, 3)
-						}
-					}
-					textBuffer = textBuffer[thinkingEnd+11:]
-					inThinkingBlock = false
-					dropTagThinking = false
-					thinkingStarted = false
-				} else if forceFlush {
-					if textBuffer != "" {
-						if !dropTagThinking {
-							if !thinkingStarted {
-								sendText(textBuffer, 1)
-								sendText("", 3)
-							} else {
-								sendText(textBuffer, 3)
-							}
-						}
-						textBuffer = ""
-					}
-					inThinkingBlock = false
-					dropTagThinking = false
-					thinkingStarted = false
-					break
-				} else {
-					// 流式输出 thinking 块内的内容
-					runes := []rune(textBuffer)
-					if len(runes) > 20 {
-						safeLen := len(runes) - 15
-						if safeLen > 0 {
-							if !dropTagThinking {
-								if !thinkingStarted {
-									sendText(string(runes[:safeLen]), 1)
-									thinkingStarted = true
-								} else {
-									sendText(string(runes[:safeLen]), 2)
-								}
-							}
-							textBuffer = string(runes[safeLen:])
-						}
-					}
-					break
-				}
-			}
-		}
-	}
-
-	// 发送 message_start
-	h.sendSSE(w, flusher, "message_start", map[string]interface{}{
-		"type": "message_start",
-		"message": map[string]interface{}{
-			"id":            msgID,
-			"type":          "message",
-			"role":          "assistant",
-			"content":       []interface{}{},
-			"model":         model,
-			"stop_reason":   nil,
-			"stop_sequence": nil,
-			"usage":         buildClaudeUsageMap(startInputTokens, 0, cacheUsage, cacheProfile != nil),
-		},
-	})
-
-	callback := &KiroStreamCallback{
-		OnText: func(text string, isThinking bool) {
-			if text == "" {
-				return
-			}
-			if isThinking {
-				rawThinkingBuilder.WriteString(text)
-			} else {
-				rawContentBuilder.WriteString(text)
-			}
-			processClaudeText(text, isThinking, false)
-		},
-		OnToolUse: func(tu KiroToolUse) {
-			// 先刷新缓冲区
-			processClaudeText("", false, true)
-			rawContentBuilder.WriteString(tu.Name)
-			if b, err := json.Marshal(tu.Input); err == nil {
-				rawContentBuilder.Write(b)
-			}
-
-			toolUses = append(toolUses, tu)
+			ensureMessageStart()
 			closeActiveBlock()
 
 			idx := nextContentIndex
 			nextContentIndex++
 
-			h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
-				"type":  "content_block_start",
-				"index": idx,
-				"content_block": map[string]interface{}{
-					"type":  "tool_use",
-					"id":    tu.ToolUseID,
-					"name":  tu.Name,
-					"input": map[string]interface{}{},
-				},
+			if blockType == "thinking" {
+				h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
+					"type":  "content_block_start",
+					"index": idx,
+					"content_block": map[string]string{
+						"type":     "thinking",
+						"thinking": "",
+					},
+				})
+			} else {
+				h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
+					"type":  "content_block_start",
+					"index": idx,
+					"content_block": map[string]string{
+						"type": "text",
+						"text": "",
+					},
+				})
+			}
+
+			activeBlockIndex = idx
+			activeBlockType = blockType
+		}
+
+		var textBuffer string
+		var inThinkingBlock bool
+		var dropTagThinking bool
+		var thinkingSource thinkingStreamSource
+		var thinkingStarted bool
+		var eventThinkingOpen bool
+
+		sendText := func(text string, thinkingState int) {
+			if thinkingState == 0 {
+				if text == "" {
+					return
+				}
+				startContentBlock("text")
+				h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": activeBlockIndex,
+					"delta": map[string]string{"type": "text_delta", "text": text},
+				})
+				return
+			}
+
+			if !thinking {
+				return
+			}
+
+			switch thinkingFormat {
+			case "think":
+				var outputText string
+				switch thinkingState {
+				case 1:
+					outputText = "<think>" + text
+				case 2:
+					outputText = text
+				case 3:
+					outputText = text + "</think>"
+				}
+				if outputText == "" {
+					return
+				}
+				startContentBlock("text")
+				h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": activeBlockIndex,
+					"delta": map[string]string{"type": "text_delta", "text": outputText},
+				})
+			case "reasoning_content":
+				if text == "" {
+					return
+				}
+				startContentBlock("text")
+				h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": activeBlockIndex,
+					"delta": map[string]string{"type": "text_delta", "text": text},
+				})
+			default:
+				if thinkingOpts.OmitDisplay {
+					if thinkingState == 1 {
+						startContentBlock("thinking")
+						return
+					}
+					if thinkingState == 3 {
+						if activeBlockType != "thinking" {
+							startContentBlock("thinking")
+						}
+						closeActiveBlock()
+					}
+					return
+				}
+				if thinkingState == 3 && text == "" {
+					if activeBlockType == "thinking" {
+						closeActiveBlock()
+					}
+					return
+				}
+				if text != "" {
+					startContentBlock("thinking")
+					h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
+						"type":  "content_block_delta",
+						"index": activeBlockIndex,
+						"delta": map[string]string{"type": "thinking_delta", "thinking": text},
+					})
+				}
+				if thinkingState == 3 && activeBlockType == "thinking" {
+					closeActiveBlock()
+				}
+			}
+		}
+
+		processClaudeText := func(text string, isThinking bool, forceFlush bool) {
+			if isThinking && !thinking {
+				return
+			}
+
+			if isThinking {
+				if !allowReasoningSource(&thinkingSource) {
+					return
+				}
+				if !thinkingStarted {
+					sendText(text, 1)
+					thinkingStarted = true
+					eventThinkingOpen = true
+				} else {
+					sendText(text, 2)
+				}
+				return
+			}
+
+			if eventThinkingOpen {
+				sendText("", 3)
+				eventThinkingOpen = false
+				thinkingStarted = false
+			}
+
+			textBuffer += text
+
+			for {
+				if !inThinkingBlock {
+					thinkingStart := strings.Index(textBuffer, "<thinking>")
+					if thinkingStart != -1 {
+						if thinkingStart > 0 {
+							sendText(textBuffer[:thinkingStart], 0)
+						}
+						textBuffer = textBuffer[thinkingStart+10:]
+						inThinkingBlock = true
+						dropTagThinking = !allowTagSource(&thinkingSource)
+						thinkingStarted = false
+					} else if forceFlush || len([]rune(textBuffer)) > 50 {
+						runes := []rune(textBuffer)
+						safeLen := len(runes)
+						if !forceFlush {
+							safeLen = max(0, len(runes)-15)
+						}
+						if safeLen > 0 {
+							sendText(string(runes[:safeLen]), 0)
+							textBuffer = string(runes[safeLen:])
+						}
+						break
+					} else {
+						break
+					}
+				} else {
+					thinkingEnd := strings.Index(textBuffer, "</thinking>")
+					if thinkingEnd != -1 {
+						content := textBuffer[:thinkingEnd]
+						if !dropTagThinking {
+							if !thinkingStarted {
+								sendText(content, 1)
+								sendText("", 3)
+							} else {
+								sendText(content, 3)
+							}
+						}
+						textBuffer = textBuffer[thinkingEnd+11:]
+						inThinkingBlock = false
+						dropTagThinking = false
+						thinkingStarted = false
+					} else if forceFlush {
+						if textBuffer != "" {
+							if !dropTagThinking {
+								if !thinkingStarted {
+									sendText(textBuffer, 1)
+									sendText("", 3)
+								} else {
+									sendText(textBuffer, 3)
+								}
+							}
+							textBuffer = ""
+						}
+						inThinkingBlock = false
+						dropTagThinking = false
+						thinkingStarted = false
+						break
+					} else {
+						runes := []rune(textBuffer)
+						if len(runes) > 20 {
+							safeLen := len(runes) - 15
+							if safeLen > 0 {
+								if !dropTagThinking {
+									if !thinkingStarted {
+										sendText(string(runes[:safeLen]), 1)
+										thinkingStarted = true
+									} else {
+										sendText(string(runes[:safeLen]), 2)
+									}
+								}
+								textBuffer = string(runes[safeLen:])
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+
+		callback := &KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				if text == "" {
+					return
+				}
+				if isThinking {
+					rawThinkingBuilder.WriteString(text)
+				} else {
+					rawContentBuilder.WriteString(text)
+				}
+				processClaudeText(text, isThinking, false)
+			},
+			OnToolUse: func(tu KiroToolUse) {
+				processClaudeText("", false, true)
+				rawContentBuilder.WriteString(tu.Name)
+				if b, err := json.Marshal(tu.Input); err == nil {
+					rawContentBuilder.Write(b)
+				}
+
+				toolUses = append(toolUses, tu)
+				ensureMessageStart()
+				closeActiveBlock()
+
+				idx := nextContentIndex
+				nextContentIndex++
+
+				h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
+					"type":  "content_block_start",
+					"index": idx,
+					"content_block": map[string]interface{}{
+						"type":  "tool_use",
+						"id":    tu.ToolUseID,
+						"name":  tu.Name,
+						"input": map[string]interface{}{},
+					},
+				})
+
+				inputJSON, _ := json.Marshal(tu.Input)
+				h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": idx,
+					"delta": map[string]interface{}{
+						"type":         "input_json_delta",
+						"partial_json": string(inputJSON),
+					},
+				})
+
+				h.sendSSE(w, flusher, "content_block_stop", map[string]interface{}{
+					"type":  "content_block_stop",
+					"index": idx,
+				})
+			},
+			OnComplete: func(inTok, outTok int) {
+				inputTokens = inTok
+				outputTokens = outTok
+			},
+			OnCredits: func(c float64) {
+				credits = c
+			},
+			OnContextUsage: func(pct float64) {
+				realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
+			},
+		}
+
+		err := CallKiroAPI(account, payload, callback)
+		if err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			if !messageStarted {
+				continue
+			}
+			h.recordFailure()
+			h.sendSSE(w, flusher, "error", map[string]interface{}{
+				"type":  "error",
+				"error": map[string]string{"type": "api_error", "message": err.Error()},
 			})
+			return
+		}
 
-			inputJSON, _ := json.Marshal(tu.Input)
-			h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
-				"type":  "content_block_delta",
-				"index": idx,
-				"delta": map[string]interface{}{
-					"type":         "input_json_delta",
-					"partial_json": string(inputJSON),
-				},
-			})
+		processClaudeText("", false, true)
+		if eventThinkingOpen {
+			sendText("", 3)
+		}
+		closeActiveBlock()
 
-			h.sendSSE(w, flusher, "content_block_stop", map[string]interface{}{
-				"type":  "content_block_stop",
-				"index": idx,
-			})
-		},
-		OnComplete: func(inTok, outTok int) {
-			inputTokens = inTok
-			outputTokens = outTok
-		},
-		OnError: func(err error) {
-			h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "quota"))
-		},
-		OnCredits: func(c float64) {
-			credits = c
-		},
-		OnContextUsage: func(pct float64) {
-			realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
-		},
-	}
+		if realInputTokens > 0 {
+			inputTokens = realInputTokens
+		} else if inputTokens <= 0 {
+			inputTokens = estimatedInputTokens
+		}
+		outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
+		thinkingOutput := rawThinkingBuilder.String()
+		if thinking && thinkingOutput == "" && extractedReasoning != "" {
+			thinkingOutput = extractedReasoning
+		}
+		if !thinking {
+			thinkingOutput = ""
+		}
+		outputTokens = estimateClaudeOutputTokens(outputContent, thinkingOutput, toolUses)
 
-	err := CallKiroAPI(account, payload, callback)
-	if err != nil {
-		h.recordFailure()
-		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "quota"))
-		h.checkOverageError(err, account.ID)
+		h.recordSuccessForApiKey(apiKeyID, inputTokens, outputTokens, credits)
+		h.pool.RecordSuccess(account.ID)
+		h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
+		h.promptCache.Update(account.ID, cacheProfile)
 
-		// Log failed request
-		config.AddRequestLog(config.RequestLog{
-			Timestamp:    time.Now().UnixMilli(),
-			Method:       "POST",
-			Path:         "/v1/messages",
-			Model:        model,
-			AccountEmail: account.Email,
-			StatusCode:   500,
-			Success:      false,
-			ErrorMessage: err.Error(),
-			InputTokens:  estimatedInputTokens,
-			OutputTokens: 0,
-			Duration:     0,
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.Header.Get("User-Agent"),
-			Stream:       true,
+		stopReason := "end_turn"
+		if len(toolUses) > 0 {
+			stopReason = "tool_use"
+		}
+
+		ensureMessageStart()
+		h.sendSSE(w, flusher, "message_delta", map[string]interface{}{
+			"type": "message_delta",
+			"delta": map[string]interface{}{
+				"stop_reason": stopReason,
+			},
+			"usage": buildClaudeUsageMap(inputTokens, outputTokens, cacheUsage, cacheProfile != nil),
 		})
 
-		h.sendSSE(w, flusher, "error", map[string]interface{}{
-			"type":  "error",
-			"error": map[string]string{"type": "api_error", "message": err.Error()},
+		h.sendSSE(w, flusher, "message_stop", map[string]interface{}{
+			"type": "message_stop",
 		})
 		return
 	}
 
-	// 刷新剩余缓冲区
-	processClaudeText("", false, true)
-	if eventThinkingOpen {
-		sendText("", 3)
-		eventThinkingOpen = false
-	}
-	closeActiveBlock()
-
-	if realInputTokens > 0 {
-		inputTokens = realInputTokens
-	} else if inputTokens <= 0 {
-		inputTokens = estimatedInputTokens
-	}
-	outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
-	thinkingOutput := rawThinkingBuilder.String()
-	if thinking && thinkingOutput == "" && extractedReasoning != "" {
-		thinkingOutput = extractedReasoning
-	}
-	if !thinking {
-		thinkingOutput = ""
-	}
-	outputTokens = estimateClaudeOutputTokens(outputContent, thinkingOutput, toolUses)
-
-	h.recordSuccess(inputTokens, outputTokens, credits)
-	h.pool.RecordSuccess(account.ID)
-	h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
-	h.promptCache.Update(account.ID, cacheProfile)
-
-	// 发送 message_delta
-	stopReason := "end_turn"
-	if len(toolUses) > 0 {
-		stopReason = "tool_use"
+	if lastErr == nil {
+		h.sendClaudeError(w, 503, "api_error", "No available accounts")
+		return
 	}
 
-	h.sendSSE(w, flusher, "message_delta", map[string]interface{}{
-		"type": "message_delta",
-		"delta": map[string]interface{}{
-			"stop_reason": stopReason,
-		},
-		"usage": buildClaudeUsageMap(inputTokens, outputTokens, cacheUsage, cacheProfile != nil),
-	})
-
-	h.sendSSE(w, flusher, "message_stop", map[string]interface{}{
-		"type": "message_stop",
-	})
-
-	// Log request
-	config.AddRequestLog(config.RequestLog{
-		Timestamp:                time.Now().UnixMilli(),
-		Method:                   "POST",
-		Path:                     "/v1/messages",
-		Model:                    model,
-		AccountEmail:             account.Email,
-		StatusCode:               200,
-		Success:                  true,
-		InputTokens:              inputTokens,
-		OutputTokens:             outputTokens,
-		CacheCreationInputTokens: cacheUsage.CacheCreationInputTokens,
-		CacheReadInputTokens:     cacheUsage.CacheReadInputTokens,
-		Duration:                 0,
-		IPAddress:                r.RemoteAddr,
-		UserAgent:                r.Header.Get("User-Agent"),
-		Stream:                   true,
-	})
+	h.recordFailure()
+	h.sendClaudeError(w, 500, "api_error", lastErr.Error())
 }
 
 func (h *Handler) sendSSE(w http.ResponseWriter, flusher http.Flusher, event string, data interface{}) {
@@ -1496,158 +1321,142 @@ func (h *Handler) recordSuccess(inputTokens, outputTokens int, credits float64) 
 	h.addCredits(credits)
 }
 
+// recordSuccessForApiKey is recordSuccess + per-API-key usage attribution.
+// When apiKeyID is empty (legacy single-key path or unauthenticated path), only the
+// global counters are updated. Persistence errors are logged but do not propagate.
+func (h *Handler) recordSuccessForApiKey(apiKeyID string, inputTokens, outputTokens int, credits float64) {
+	h.recordSuccess(inputTokens, outputTokens, credits)
+	if apiKeyID == "" {
+		return
+	}
+	if err := config.RecordApiKeyUsage(apiKeyID, int64(inputTokens+outputTokens), credits); err != nil {
+		logger.Warnf("[ApiKey] failed to record usage for key %s: %v", apiKeyID, err)
+	}
+}
+
 func (h *Handler) recordFailure() {
 	atomic.AddInt64(&h.totalRequests, 1)
 	atomic.AddInt64(&h.failedRequests, 1)
 }
 
-// checkOverageError 检测 402 超额错误，自动关闭对应账号的超额使用
-func (h *Handler) checkOverageError(err error, accountID string) {
-	if err == nil {
-		return
-	}
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "402") && strings.Contains(errMsg, "OVERAGE") {
-		logger.Warnf("[Overage] Detected overage limit error for account %s, disabling AllowOverage", accountID)
-		config.DisableAccountOverage(accountID)
-	}
-}
-
 // handleClaudeNonStream Claude 非流式响应
-func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheUsage promptCacheUsage, cacheProfile *promptCacheProfile) {
-	var content string
-	var thinkingContent string
-	var toolUses []KiroToolUse
-	var inputTokens, outputTokens int
-	var credits float64
-	var realInputTokens int
+func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayload, model string, thinking bool, thinkingOpts claudeThinkingResponseOptions, estimatedInputTokens int, cacheProfile *promptCacheProfile, apiKeyID string) {
+	excluded := make(map[string]bool)
+	var lastErr error
 
-	callback := &KiroStreamCallback{
-		OnText: func(text string, isThinking bool) {
-			if isThinking {
-				thinkingContent += text
-			} else {
-				content += text
+	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
+		account := h.pool.GetNextForModelExcluding(model, excluded)
+		if account == nil {
+			break
+		}
+		if err := h.ensureValidToken(account); err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			continue
+		}
+		cacheUsage := h.promptCache.Compute(account.ID, cacheProfile)
+
+		var content string
+		var thinkingContent string
+		var toolUses []KiroToolUse
+		var inputTokens, outputTokens int
+		var credits float64
+		var realInputTokens int
+
+		callback := &KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				if isThinking {
+					thinkingContent += text
+				} else {
+					content += text
+				}
+			},
+			OnToolUse: func(tu KiroToolUse) {
+				toolUses = append(toolUses, tu)
+			},
+			OnComplete: func(inTok, outTok int) {
+				inputTokens = inTok
+				outputTokens = outTok
+			},
+			OnCredits: func(c float64) {
+				credits = c
+			},
+			OnContextUsage: func(pct float64) {
+				realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
+			},
+		}
+
+		err := CallKiroAPI(account, payload, callback)
+		if err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			continue
+		}
+
+		thinkingFormat := thinkingOpts.Format
+		finalContent, extractedReasoning := extractThinkingFromContent(content)
+		rawThinkingContent := thinkingContent
+		if thinking && rawThinkingContent == "" && extractedReasoning != "" {
+			rawThinkingContent = extractedReasoning
+		}
+		if !thinking {
+			rawThinkingContent = ""
+		}
+
+		if realInputTokens > 0 {
+			inputTokens = realInputTokens
+		} else if inputTokens <= 0 {
+			inputTokens = estimatedInputTokens
+		}
+		outputTokens = estimateClaudeOutputTokens(finalContent, rawThinkingContent, toolUses)
+
+		h.recordSuccessForApiKey(apiKeyID, inputTokens, outputTokens, credits)
+		h.pool.RecordSuccess(account.ID)
+		h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
+		h.promptCache.Update(account.ID, cacheProfile)
+
+		responseThinkingContent := rawThinkingContent
+		includeEmptyThinkingBlock := thinking && thinkingOpts.OmitDisplay && rawThinkingContent != ""
+		if includeEmptyThinkingBlock {
+			responseThinkingContent = ""
+		}
+
+		if thinking && responseThinkingContent != "" {
+			switch thinkingFormat {
+			case "think":
+				finalContent = "<think>" + responseThinkingContent + "</think>" + finalContent
+				responseThinkingContent = ""
+			case "reasoning_content":
+				finalContent = responseThinkingContent + finalContent
+				responseThinkingContent = ""
+			default:
 			}
-		},
-		OnToolUse: func(tu KiroToolUse) {
-			toolUses = append(toolUses, tu)
-		},
-		OnComplete: func(inTok, outTok int) {
-			inputTokens = inTok
-			outputTokens = outTok
-		},
-		OnError: func(err error) {
-			h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
-		},
-		OnCredits: func(c float64) {
-			credits = c
-		},
-		OnContextUsage: func(pct float64) {
-			realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
-		},
-	}
+		}
 
-	err := CallKiroAPI(account, payload, callback)
-	if err != nil {
-		h.recordFailure()
-		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
-		h.checkOverageError(err, account.ID)
-
-		// Log failed request
-		config.AddRequestLog(config.RequestLog{
-			Timestamp:    time.Now().UnixMilli(),
-			Method:       "POST",
-			Path:         "/v1/messages",
-			Model:        model,
-			AccountEmail: account.Email,
-			StatusCode:   500,
-			Success:      false,
-			ErrorMessage: err.Error(),
-			InputTokens:  estimatedInputTokens,
-			OutputTokens: 0,
-			Duration:     0,
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.Header.Get("User-Agent"),
-			Stream:       false,
-		})
-
-		h.sendClaudeError(w, 500, "api_error", err.Error())
+		resp := KiroToClaudeResponse(finalContent, responseThinkingContent, includeEmptyThinkingBlock, toolUses, inputTokens, outputTokens, model)
+		resp.Usage.InputTokens = billedClaudeInputTokens(inputTokens, cacheUsage)
+		resp.Usage.CacheCreationInputTokens = cacheUsage.CacheCreationInputTokens
+		resp.Usage.CacheReadInputTokens = cacheUsage.CacheReadInputTokens
+		if cacheProfile != nil {
+			resp.Usage.CacheCreation = &ClaudeCacheCreationUsage{
+				Ephemeral5mInputTokens: cacheUsage.CacheCreation5mInputTokens,
+				Ephemeral1hInputTokens: cacheUsage.CacheCreation1hInputTokens,
+			}
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
-	// 合并 thinking 内容（如果有 reasoningContentEvent 的内容）
-	thinkingFormat := thinkingOpts.Format
-	finalContent, extractedReasoning := extractThinkingFromContent(content)
-	rawThinkingContent := thinkingContent
-	if thinking && rawThinkingContent == "" && extractedReasoning != "" {
-		rawThinkingContent = extractedReasoning
-	}
-	if !thinking {
-		rawThinkingContent = ""
+	if lastErr == nil {
+		h.sendClaudeError(w, 503, "api_error", "No available accounts")
+		return
 	}
 
-	if realInputTokens > 0 {
-		inputTokens = realInputTokens
-	} else if inputTokens <= 0 {
-		inputTokens = estimatedInputTokens
-	}
-	outputTokens = estimateClaudeOutputTokens(finalContent, rawThinkingContent, toolUses)
-
-	h.recordSuccess(inputTokens, outputTokens, credits)
-	h.pool.RecordSuccess(account.ID)
-	h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
-	h.promptCache.Update(account.ID, cacheProfile)
-
-	responseThinkingContent := rawThinkingContent
-	includeEmptyThinkingBlock := thinking && thinkingOpts.OmitDisplay && rawThinkingContent != ""
-	if includeEmptyThinkingBlock {
-		responseThinkingContent = ""
-	}
-
-	if thinking && responseThinkingContent != "" {
-		switch thinkingFormat {
-		case "think":
-			finalContent = "<think>" + responseThinkingContent + "</think>" + finalContent
-			responseThinkingContent = ""
-		case "reasoning_content":
-			finalContent = responseThinkingContent + finalContent // Claude 格式不支持 reasoning_content，直接拼接
-			responseThinkingContent = ""
-		default:
-		}
-	}
-
-	resp := KiroToClaudeResponse(finalContent, responseThinkingContent, includeEmptyThinkingBlock, toolUses, inputTokens, outputTokens, model)
-	resp.Usage.InputTokens = billedClaudeInputTokens(inputTokens, cacheUsage)
-	resp.Usage.CacheCreationInputTokens = cacheUsage.CacheCreationInputTokens
-	resp.Usage.CacheReadInputTokens = cacheUsage.CacheReadInputTokens
-	if cacheProfile != nil {
-		resp.Usage.CacheCreation = &ClaudeCacheCreationUsage{
-			Ephemeral5mInputTokens: cacheUsage.CacheCreation5mInputTokens,
-			Ephemeral1hInputTokens: cacheUsage.CacheCreation1hInputTokens,
-		}
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(resp)
-
-	// Log request
-	config.AddRequestLog(config.RequestLog{
-		Timestamp:                time.Now().UnixMilli(),
-		Method:                   "POST",
-		Path:                     "/v1/messages",
-		Model:                    model,
-		AccountEmail:             account.Email,
-		StatusCode:               200,
-		Success:                  true,
-		InputTokens:              inputTokens,
-		OutputTokens:             outputTokens,
-		CacheCreationInputTokens: cacheUsage.CacheCreationInputTokens,
-		CacheReadInputTokens:     cacheUsage.CacheReadInputTokens,
-		Duration:                 0,
-		IPAddress:                r.RemoteAddr,
-		UserAgent:                r.Header.Get("User-Agent"),
-		Stream:                   false,
-	})
+	h.recordFailure()
+	h.sendClaudeError(w, 500, "api_error", lastErr.Error())
 }
 
 func (h *Handler) sendClaudeError(w http.ResponseWriter, status int, errType, message string) {
@@ -1685,18 +1494,6 @@ func (h *Handler) handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actualModel, _ := ParseModelAndThinking(req.Model, config.GetThinkingConfig().Suffix)
-	account := h.pool.GetNextForModel(actualModel)
-	if account == nil {
-		h.sendOpenAIError(w, 503, "server_error", "No available accounts")
-		return
-	}
-
-	if err := h.ensureValidToken(account); err != nil {
-		h.sendOpenAIError(w, 503, "server_error", "Token refresh failed")
-		return
-	}
-
 	// 解析模型和 thinking 模式
 	thinkingCfg := config.GetThinkingConfig()
 	actualModel, thinking := ParseModelAndThinking(req.Model, thinkingCfg.Suffix)
@@ -1705,15 +1502,16 @@ func (h *Handler) handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 
 	kiroPayload := OpenAIToKiro(&req, thinking)
 
+	apiKeyID := apiKeyIDFromContext(r.Context())
 	if req.Stream {
-		h.handleOpenAIStream(w, r, account, kiroPayload, req.Model, thinking, estimatedInputTokens)
+		h.handleOpenAIStream(w, kiroPayload, req.Model, thinking, estimatedInputTokens, apiKeyID)
 	} else {
-		h.handleOpenAINonStream(w, r, account, kiroPayload, req.Model, thinking, estimatedInputTokens)
+		h.handleOpenAINonStream(w, kiroPayload, req.Model, thinking, estimatedInputTokens, apiKeyID)
 	}
 }
 
 // handleOpenAIStream OpenAI 流式响应
-func (h *Handler) handleOpenAIStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int) {
+func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int, apiKeyID string) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1728,85 +1526,113 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, r *http.Request, acc
 	thinkingFormat := config.GetThinkingConfig().OpenAIFormat
 
 	chatID := "chatcmpl-" + uuid.New().String()
-	var toolCalls []ToolCall
-	var toolCallIndex int
-	var inputTokens, outputTokens int
-	var credits float64
-	var realInputTokens int
-	var rawContentBuilder strings.Builder
-	var rawReasoningBuilder strings.Builder
+	excluded := make(map[string]bool)
+	var lastErr error
 
-	// Thinking 标签解析状态
-	var textBuffer string
-	var inThinkingBlock bool
-	var dropTagThinking bool
-	var thinkingSource thinkingStreamSource
-
-	// 发送 chunk 的辅助函数
-	// thinkingState: 0=普通内容, 1=thinking开始, 2=thinking中间, 3=thinking结束
-	sendChunk := func(content string, thinkingState int) {
-		if content == "" && thinkingState == 2 {
-			return
+	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
+		account := h.pool.GetNextForModelExcluding(model, excluded)
+		if account == nil {
+			break
+		}
+		if err := h.ensureValidToken(account); err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			continue
 		}
 
-		var chunk map[string]interface{}
+		var toolCalls []ToolCall
+		var toolCallIndex int
+		var inputTokens, outputTokens int
+		var credits float64
+		var realInputTokens int
+		var rawContentBuilder strings.Builder
+		var rawReasoningBuilder strings.Builder
+		var textBuffer string
+		var inThinkingBlock bool
+		var dropTagThinking bool
+		var thinkingSource thinkingStreamSource
+		var thinkingStarted bool
+		var eventThinkingOpen bool
+		responseStarted := false
 
-		if thinkingState > 0 {
-			if !thinking {
+		sendChunk := func(content string, thinkingState int) {
+			if content == "" && thinkingState == 2 {
 				return
 			}
-			// thinking 内容
-			switch thinkingFormat {
-			case "thinking":
-				// 流式输出标签
-				var text string
-				switch thinkingState {
-				case 1: // 开始
-					text = "<thinking>" + content
-				case 2: // 中间
-					text = content
-				case 3: // 结束
-					text = content + "</thinking>"
-				}
-				if text == "" {
+
+			var chunk map[string]interface{}
+
+			if thinkingState > 0 {
+				if !thinking {
 					return
 				}
-				chunk = map[string]interface{}{
-					"id":      chatID,
-					"object":  "chat.completion.chunk",
-					"created": time.Now().Unix(),
-					"model":   model,
-					"choices": []map[string]interface{}{{
-						"index":         0,
-						"delta":         map[string]string{"content": text},
-						"finish_reason": nil,
-					}},
+				switch thinkingFormat {
+				case "thinking":
+					var text string
+					switch thinkingState {
+					case 1:
+						text = "<thinking>" + content
+					case 2:
+						text = content
+					case 3:
+						text = content + "</thinking>"
+					}
+					if text == "" {
+						return
+					}
+					chunk = map[string]interface{}{
+						"id":      chatID,
+						"object":  "chat.completion.chunk",
+						"created": time.Now().Unix(),
+						"model":   model,
+						"choices": []map[string]interface{}{{
+							"index":         0,
+							"delta":         map[string]string{"content": text},
+							"finish_reason": nil,
+						}},
+					}
+				case "think":
+					var text string
+					switch thinkingState {
+					case 1:
+						text = "<think>" + content
+					case 2:
+						text = content
+					case 3:
+						text = content + "</think>"
+					}
+					if text == "" {
+						return
+					}
+					chunk = map[string]interface{}{
+						"id":      chatID,
+						"object":  "chat.completion.chunk",
+						"created": time.Now().Unix(),
+						"model":   model,
+						"choices": []map[string]interface{}{{
+							"index":         0,
+							"delta":         map[string]string{"content": text},
+							"finish_reason": nil,
+						}},
+					}
+				default:
+					if content == "" {
+						return
+					}
+					chunk = map[string]interface{}{
+						"id":      chatID,
+						"object":  "chat.completion.chunk",
+						"created": time.Now().Unix(),
+						"model":   model,
+						"choices": []map[string]interface{}{{
+							"index":         0,
+							"delta":         map[string]string{"reasoning_content": content},
+							"finish_reason": nil,
+						}},
+					}
 				}
-			case "think":
-				var text string
-				switch thinkingState {
-				case 1:
-					text = "<think>" + content
-				case 2:
-					text = content
-				case 3:
-					text = content + "</think>"
-				}
-				if text == "" {
-					return
-				}
-				chunk = map[string]interface{}{
-					"id":      chatID,
-					"object":  "chat.completion.chunk",
-					"created": time.Now().Unix(),
-					"model":   model,
-					"choices": []map[string]interface{}{{
-						"index":         0,
-						"delta":         map[string]string{"content": text},
-						"finish_reason": nil,
-					}},
-				}
-			default: // "reasoning_content"
+			} else {
 				if content == "" {
 					return
 				}
@@ -1817,415 +1643,342 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, r *http.Request, acc
 					"model":   model,
 					"choices": []map[string]interface{}{{
 						"index":         0,
-						"delta":         map[string]string{"reasoning_content": content},
+						"delta":         map[string]string{"content": content},
 						"finish_reason": nil,
 					}},
 				}
 			}
-		} else {
-			// 普通内容
-			if content == "" {
-				return
-			}
-			chunk = map[string]interface{}{
-				"id":      chatID,
-				"object":  "chat.completion.chunk",
-				"created": time.Now().Unix(),
-				"model":   model,
-				"choices": []map[string]interface{}{{
-					"index":         0,
-					"delta":         map[string]string{"content": content},
-					"finish_reason": nil,
-				}},
-			}
-		}
-		data, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", string(data))
-		flusher.Flush()
-	}
-
-	// 处理文本，解析 <thinking> 标签
-	// thinkingStarted 用于跟踪是否已发送开始标签
-	var thinkingStarted bool
-	var eventThinkingOpen bool
-
-	processText := func(text string, isThinking bool, forceFlush bool) {
-		if isThinking && !thinking {
-			return
-		}
-
-		// 如果是 reasoningContentEvent，直接输出
-		if isThinking {
-			if !allowReasoningSource(&thinkingSource) {
-				return
-			}
-			if !thinkingStarted {
-				sendChunk(text, 1) // 开始
-				thinkingStarted = true
-				eventThinkingOpen = true
-			} else {
-				sendChunk(text, 2) // 中间
-			}
-			return
-		}
-
-		if eventThinkingOpen {
-			sendChunk("", 3)
-			eventThinkingOpen = false
-			thinkingStarted = false
-		}
-
-		textBuffer += text
-
-		for {
-			if !inThinkingBlock {
-				// 查找 <thinking> 开始标签
-				thinkingStart := strings.Index(textBuffer, "<thinking>")
-				if thinkingStart != -1 {
-					// 输出 thinking 标签之前的内容
-					if thinkingStart > 0 {
-						sendChunk(textBuffer[:thinkingStart], 0)
-					}
-					textBuffer = textBuffer[thinkingStart+10:] // 移除 <thinking>
-					inThinkingBlock = true
-					dropTagThinking = !allowTagSource(&thinkingSource)
-					thinkingStarted = false // 重置，准备发送新的开始标签
-				} else if forceFlush || len([]rune(textBuffer)) > 50 {
-					// 没有找到标签，安全输出（保留可能的部分标签）
-					runes := []rune(textBuffer)
-					safeLen := len(runes)
-					if !forceFlush {
-						safeLen = max(0, len(runes)-15)
-					}
-					if safeLen > 0 {
-						sendChunk(string(runes[:safeLen]), 0)
-						textBuffer = string(runes[safeLen:])
-					}
-					break
-				} else {
-					break
-				}
-			} else {
-				// 在 thinking 块内，查找 </thinking> 结束标签
-				thinkingEnd := strings.Index(textBuffer, "</thinking>")
-				if thinkingEnd != -1 {
-					// 输出 thinking 内容
-					content := textBuffer[:thinkingEnd]
-					if !dropTagThinking {
-						if !thinkingStarted {
-							// 一次性输出完整内容（开始+内容+结束）
-							sendChunk(content, 1) // 开始
-							sendChunk("", 3)      // 结束（空内容，只发结束标签）
-						} else {
-							// 已经开始了，发送剩余内容和结束
-							sendChunk(content, 3) // 结束
-						}
-					}
-					textBuffer = textBuffer[thinkingEnd+11:] // 移除 </thinking>
-					inThinkingBlock = false
-					dropTagThinking = false
-					thinkingStarted = false
-				} else if forceFlush {
-					// 强制刷新：输出剩余内容
-					if textBuffer != "" {
-						if !dropTagThinking {
-							if !thinkingStarted {
-								sendChunk(textBuffer, 1) // 开始
-								sendChunk("", 3)         // 结束
-							} else {
-								sendChunk(textBuffer, 3) // 结束
-							}
-						}
-						textBuffer = ""
-					}
-					inThinkingBlock = false
-					dropTagThinking = false
-					thinkingStarted = false
-					break
-				} else {
-					// 流式输出 thinking 块内的内容
-					runes := []rune(textBuffer)
-					if len(runes) > 20 {
-						safeLen := len(runes) - 15 // 保留可能的 </thinking> 部分
-						if safeLen > 0 {
-							if !dropTagThinking {
-								if !thinkingStarted {
-									sendChunk(string(runes[:safeLen]), 1) // 开始
-									thinkingStarted = true
-								} else {
-									sendChunk(string(runes[:safeLen]), 2) // 中间
-								}
-							}
-							textBuffer = string(runes[safeLen:])
-						}
-					}
-					break
-				}
-			}
-		}
-	}
-
-	callback := &KiroStreamCallback{
-		OnText: func(text string, isThinking bool) {
-			if text == "" {
-				return
-			}
-			if isThinking {
-				rawReasoningBuilder.WriteString(text)
-			} else {
-				rawContentBuilder.WriteString(text)
-			}
-			processText(text, isThinking, false)
-		},
-		OnToolUse: func(tu KiroToolUse) {
-			// 先刷新缓冲区
-			processText("", false, true)
-
-			args, _ := json.Marshal(tu.Input)
-			rawContentBuilder.WriteString(tu.Name)
-			rawContentBuilder.Write(args)
-			tc := ToolCall{ID: tu.ToolUseID, Type: "function"}
-			tc.Function.Name = tu.Name
-			tc.Function.Arguments = string(args)
-			toolCalls = append(toolCalls, tc)
-
-			chunk := map[string]interface{}{
-				"id":      chatID,
-				"object":  "chat.completion.chunk",
-				"created": time.Now().Unix(),
-				"model":   model,
-				"choices": []map[string]interface{}{{
-					"index": 0,
-					"delta": map[string]interface{}{
-						"tool_calls": []map[string]interface{}{{
-							"index": toolCallIndex,
-							"id":    tu.ToolUseID,
-							"type":  "function",
-							"function": map[string]string{
-								"name":      tu.Name,
-								"arguments": string(args),
-							},
-						}},
-					},
-					"finish_reason": nil,
-				}},
-			}
-			toolCallIndex++
 			data, _ := json.Marshal(chunk)
 			fmt.Fprintf(w, "data: %s\n\n", string(data))
 			flusher.Flush()
-		},
-		OnComplete: func(inTok, outTok int) {
-			inputTokens = inTok
-			outputTokens = outTok
-		},
-		OnError: func(err error) {
-			h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
-		},
-		OnCredits: func(c float64) {
-			credits = c
-		},
-		OnContextUsage: func(pct float64) {
-			realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
-		},
-	}
+			responseStarted = true
+		}
 
-	err := CallKiroAPI(account, payload, callback)
-	if err != nil {
-		h.recordFailure()
-		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
-		h.checkOverageError(err, account.ID)
+		processText := func(text string, isThinking bool, forceFlush bool) {
+			if isThinking && !thinking {
+				return
+			}
 
-		// Log failed request
-		config.AddRequestLog(config.RequestLog{
-			Timestamp:    time.Now().UnixMilli(),
-			Method:       "POST",
-			Path:         "/v1/chat/completions",
-			Model:        model,
-			AccountEmail: account.Email,
-			StatusCode:   500,
-			Success:      false,
-			ErrorMessage: err.Error(),
-			InputTokens:  estimatedInputTokens,
-			OutputTokens: 0,
-			Duration:     0,
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.Header.Get("User-Agent"),
-			Stream:       true,
-		})
+			if isThinking {
+				if !allowReasoningSource(&thinkingSource) {
+					return
+				}
+				if !thinkingStarted {
+					sendChunk(text, 1)
+					thinkingStarted = true
+					eventThinkingOpen = true
+				} else {
+					sendChunk(text, 2)
+				}
+				return
+			}
 
+			if eventThinkingOpen {
+				sendChunk("", 3)
+				eventThinkingOpen = false
+				thinkingStarted = false
+			}
+
+			textBuffer += text
+
+			for {
+				if !inThinkingBlock {
+					thinkingStart := strings.Index(textBuffer, "<thinking>")
+					if thinkingStart != -1 {
+						if thinkingStart > 0 {
+							sendChunk(textBuffer[:thinkingStart], 0)
+						}
+						textBuffer = textBuffer[thinkingStart+10:]
+						inThinkingBlock = true
+						dropTagThinking = !allowTagSource(&thinkingSource)
+						thinkingStarted = false
+					} else if forceFlush || len([]rune(textBuffer)) > 50 {
+						runes := []rune(textBuffer)
+						safeLen := len(runes)
+						if !forceFlush {
+							safeLen = max(0, len(runes)-15)
+						}
+						if safeLen > 0 {
+							sendChunk(string(runes[:safeLen]), 0)
+							textBuffer = string(runes[safeLen:])
+						}
+						break
+					} else {
+						break
+					}
+				} else {
+					thinkingEnd := strings.Index(textBuffer, "</thinking>")
+					if thinkingEnd != -1 {
+						content := textBuffer[:thinkingEnd]
+						if !dropTagThinking {
+							if !thinkingStarted {
+								sendChunk(content, 1)
+								sendChunk("", 3)
+							} else {
+								sendChunk(content, 3)
+							}
+						}
+						textBuffer = textBuffer[thinkingEnd+11:]
+						inThinkingBlock = false
+						dropTagThinking = false
+						thinkingStarted = false
+					} else if forceFlush {
+						if textBuffer != "" {
+							if !dropTagThinking {
+								if !thinkingStarted {
+									sendChunk(textBuffer, 1)
+									sendChunk("", 3)
+								} else {
+									sendChunk(textBuffer, 3)
+								}
+							}
+							textBuffer = ""
+						}
+						inThinkingBlock = false
+						dropTagThinking = false
+						thinkingStarted = false
+						break
+					} else {
+						runes := []rune(textBuffer)
+						if len(runes) > 20 {
+							safeLen := len(runes) - 15
+							if safeLen > 0 {
+								if !dropTagThinking {
+									if !thinkingStarted {
+										sendChunk(string(runes[:safeLen]), 1)
+										thinkingStarted = true
+									} else {
+										sendChunk(string(runes[:safeLen]), 2)
+									}
+								}
+								textBuffer = string(runes[safeLen:])
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+
+		callback := &KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				if text == "" {
+					return
+				}
+				if isThinking {
+					rawReasoningBuilder.WriteString(text)
+				} else {
+					rawContentBuilder.WriteString(text)
+				}
+				processText(text, isThinking, false)
+			},
+			OnToolUse: func(tu KiroToolUse) {
+				processText("", false, true)
+
+				args, _ := json.Marshal(tu.Input)
+				rawContentBuilder.WriteString(tu.Name)
+				rawContentBuilder.Write(args)
+				tc := ToolCall{ID: tu.ToolUseID, Type: "function"}
+				tc.Function.Name = tu.Name
+				tc.Function.Arguments = string(args)
+				toolCalls = append(toolCalls, tc)
+
+				chunk := map[string]interface{}{
+					"id":      chatID,
+					"object":  "chat.completion.chunk",
+					"created": time.Now().Unix(),
+					"model":   model,
+					"choices": []map[string]interface{}{{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"tool_calls": []map[string]interface{}{{
+								"index": toolCallIndex,
+								"id":    tu.ToolUseID,
+								"type":  "function",
+								"function": map[string]string{
+									"name":      tu.Name,
+									"arguments": string(args),
+								},
+							}},
+						},
+						"finish_reason": nil,
+					}},
+				}
+				toolCallIndex++
+				data, _ := json.Marshal(chunk)
+				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				flusher.Flush()
+				responseStarted = true
+			},
+			OnComplete: func(inTok, outTok int) {
+				inputTokens = inTok
+				outputTokens = outTok
+			},
+			OnCredits: func(c float64) {
+				credits = c
+			},
+			OnContextUsage: func(pct float64) {
+				realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
+			},
+		}
+
+		err := CallKiroAPI(account, payload, callback)
+		if err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			if !responseStarted {
+				continue
+			}
+			h.recordFailure()
+			return
+		}
+
+		processText("", false, true)
+		if eventThinkingOpen {
+			sendChunk("", 3)
+		}
+
+		if realInputTokens > 0 {
+			inputTokens = realInputTokens
+		} else if inputTokens <= 0 {
+			inputTokens = estimatedInputTokens
+		}
+		outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
+		reasoningOutput := rawReasoningBuilder.String()
+		if thinking && reasoningOutput == "" && extractedReasoning != "" {
+			reasoningOutput = extractedReasoning
+		}
+		if !thinking {
+			reasoningOutput = ""
+		}
+		outputTokens = estimateApproxTokens(outputContent) + estimateApproxTokens(reasoningOutput)
+		for _, tc := range toolCalls {
+			outputTokens += estimateApproxTokens(tc.Function.Name)
+			outputTokens += estimateApproxTokens(tc.Function.Arguments)
+		}
+
+		h.recordSuccessForApiKey(apiKeyID, inputTokens, outputTokens, credits)
+		h.pool.RecordSuccess(account.ID)
+		h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
+
+		finishReason := "stop"
+		if len(toolCalls) > 0 {
+			finishReason = "tool_calls"
+		}
+
+		chunk := map[string]interface{}{
+			"id":      chatID,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   model,
+			"choices": []map[string]interface{}{{
+				"index":         0,
+				"delta":         map[string]interface{}{},
+				"finish_reason": finishReason,
+			}},
+			"usage": map[string]int{
+				"prompt_tokens":     inputTokens,
+				"completion_tokens": outputTokens,
+				"total_tokens":      inputTokens + outputTokens,
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", string(data))
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
 		return
 	}
 
-	// 刷新剩余缓冲区
-	processText("", false, true)
-	if eventThinkingOpen {
-		sendChunk("", 3)
-		eventThinkingOpen = false
+	if lastErr == nil {
+		h.sendOpenAIError(w, 503, "server_error", "No available accounts")
+		return
 	}
 
-	if realInputTokens > 0 {
-		inputTokens = realInputTokens
-	} else if inputTokens <= 0 {
-		inputTokens = estimatedInputTokens
-	}
-	outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
-	reasoningOutput := rawReasoningBuilder.String()
-	if thinking && reasoningOutput == "" && extractedReasoning != "" {
-		reasoningOutput = extractedReasoning
-	}
-	if !thinking {
-		reasoningOutput = ""
-	}
-	outputTokens = estimateApproxTokens(outputContent) + estimateApproxTokens(reasoningOutput)
-	for _, tc := range toolCalls {
-		outputTokens += estimateApproxTokens(tc.Function.Name)
-		outputTokens += estimateApproxTokens(tc.Function.Arguments)
-	}
-
-	h.recordSuccess(inputTokens, outputTokens, credits)
-	h.pool.RecordSuccess(account.ID)
-	h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
-
-	// 发送结束
-	finishReason := "stop"
-	if len(toolCalls) > 0 {
-		finishReason = "tool_calls"
-	}
-
-	chunk := map[string]interface{}{
-		"id":      chatID,
-		"object":  "chat.completion.chunk",
-		"created": time.Now().Unix(),
-		"model":   model,
-		"choices": []map[string]interface{}{{
-			"index":         0,
-			"delta":         map[string]interface{}{},
-			"finish_reason": finishReason,
-		}},
-		"usage": map[string]int{
-			"prompt_tokens":     inputTokens,
-			"completion_tokens": outputTokens,
-			"total_tokens":      inputTokens + outputTokens,
-		},
-	}
-	data, _ := json.Marshal(chunk)
-	fmt.Fprintf(w, "data: %s\n\n", string(data))
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
-
-	// Log request
-	config.AddRequestLog(config.RequestLog{
-		Timestamp:    time.Now().UnixMilli(),
-		Method:       "POST",
-		Path:         "/v1/chat/completions",
-		Model:        model,
-		AccountEmail: account.Email,
-		StatusCode:   200,
-		Success:      true,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		Duration:     0,
-		IPAddress:    r.RemoteAddr,
-		UserAgent:    r.Header.Get("User-Agent"),
-		Stream:       true,
-	})
+	h.recordFailure()
+	h.sendOpenAIError(w, 500, "server_error", lastErr.Error())
 }
 
 // handleOpenAINonStream OpenAI 非流式响应
-func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, r *http.Request, account *config.Account, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int) {
-	var content string
-	var reasoningContent string
-	var toolUses []KiroToolUse
-	var inputTokens, outputTokens int
-	var credits float64
-	var realInputTokens int
+func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int, apiKeyID string) {
+	excluded := make(map[string]bool)
+	var lastErr error
 
-	callback := &KiroStreamCallback{
-		OnText: func(text string, isThinking bool) {
-			if isThinking {
-				reasoningContent += text
-			} else {
-				content += text
-			}
-		},
-		OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, tu) },
-		OnComplete: func(inTok, outTok int) { inputTokens = inTok; outputTokens = outTok },
-		OnError:    func(err error) { h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429")) },
-		OnCredits:  func(c float64) { credits = c },
-		OnContextUsage: func(pct float64) {
-			realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
-		},
-	}
+	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
+		account := h.pool.GetNextForModelExcluding(model, excluded)
+		if account == nil {
+			break
+		}
+		if err := h.ensureValidToken(account); err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			continue
+		}
 
-	err := CallKiroAPI(account, payload, callback)
-	if err != nil {
-		h.recordFailure()
-		h.pool.RecordError(account.ID, strings.Contains(err.Error(), "429"))
-		h.checkOverageError(err, account.ID)
+		var content string
+		var reasoningContent string
+		var toolUses []KiroToolUse
+		var inputTokens, outputTokens int
+		var credits float64
+		var realInputTokens int
 
-		// Log failed request
-		config.AddRequestLog(config.RequestLog{
-			Timestamp:    time.Now().UnixMilli(),
-			Method:       "POST",
-			Path:         "/v1/chat/completions",
-			Model:        model,
-			AccountEmail: account.Email,
-			StatusCode:   500,
-			Success:      false,
-			ErrorMessage: err.Error(),
-			InputTokens:  estimatedInputTokens,
-			OutputTokens: 0,
-			Duration:     0,
-			IPAddress:    r.RemoteAddr,
-			UserAgent:    r.Header.Get("User-Agent"),
-			Stream:       false,
-		})
+		callback := &KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				if isThinking {
+					reasoningContent += text
+				} else {
+					content += text
+				}
+			},
+			OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, tu) },
+			OnComplete: func(inTok, outTok int) { inputTokens = inTok; outputTokens = outTok },
+			OnCredits:  func(c float64) { credits = c },
+			OnContextUsage: func(pct float64) {
+				realInputTokens = int(pct * float64(getContextWindowSize(model)) / 100.0)
+			},
+		}
 
-		h.sendOpenAIError(w, 500, "server_error", err.Error())
+		err := CallKiroAPI(account, payload, callback)
+		if err != nil {
+			lastErr = err
+			excluded[account.ID] = true
+			h.handleAccountFailure(account, err)
+			continue
+		}
+
+		finalContent, extractedReasoning := extractThinkingFromContent(content)
+		if thinking && reasoningContent == "" && extractedReasoning != "" {
+			reasoningContent = extractedReasoning
+		} else if !thinking {
+			reasoningContent = ""
+		}
+
+		if realInputTokens > 0 {
+			inputTokens = realInputTokens
+		} else if inputTokens <= 0 {
+			inputTokens = estimatedInputTokens
+		}
+		outputTokens = estimateOpenAIOutputTokens(finalContent, reasoningContent, toolUses)
+
+		h.recordSuccessForApiKey(apiKeyID, inputTokens, outputTokens, credits)
+		h.pool.RecordSuccess(account.ID)
+		h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
+
+		thinkingFormat := config.GetThinkingConfig().OpenAIFormat
+		resp := KiroToOpenAIResponseWithReasoning(finalContent, reasoningContent, toolUses, inputTokens, outputTokens, model, thinkingFormat)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
-	// 解析 content 中的 <thinking> 标签
-	finalContent, extractedReasoning := extractThinkingFromContent(content)
-	if thinking && reasoningContent == "" && extractedReasoning != "" {
-		reasoningContent = extractedReasoning
-	} else if !thinking {
-		reasoningContent = ""
+	if lastErr == nil {
+		h.sendOpenAIError(w, 503, "server_error", "No available accounts")
+		return
 	}
 
-	if realInputTokens > 0 {
-		inputTokens = realInputTokens
-	} else if inputTokens <= 0 {
-		inputTokens = estimatedInputTokens
-	}
-	outputTokens = estimateOpenAIOutputTokens(finalContent, reasoningContent, toolUses)
-
-	h.recordSuccess(inputTokens, outputTokens, credits)
-	h.pool.RecordSuccess(account.ID)
-	h.pool.UpdateStats(account.ID, inputTokens+outputTokens, credits)
-
-	thinkingFormat := config.GetThinkingConfig().OpenAIFormat
-	resp := KiroToOpenAIResponseWithReasoning(finalContent, reasoningContent, toolUses, inputTokens, outputTokens, model, thinkingFormat)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(resp)
-
-	// Log request
-	config.AddRequestLog(config.RequestLog{
-		Timestamp:    time.Now().UnixMilli(),
-		Method:       "POST",
-		Path:         "/v1/chat/completions",
-		Model:        model,
-		AccountEmail: account.Email,
-		StatusCode:   200,
-		Success:      true,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		Duration:     0,
-		IPAddress:    r.RemoteAddr,
-		UserAgent:    r.Header.Get("User-Agent"),
-		Stream:       false,
-	})
+	h.recordFailure()
+	h.sendOpenAIError(w, 500, "server_error", lastErr.Error())
 }
 
 func (h *Handler) sendOpenAIError(w http.ResponseWriter, status int, errType, message string) {
@@ -2285,26 +2038,6 @@ func (h *Handler) ensureValidToken(account *config.Account) error {
 // ==================== 管理 API ====================
 
 func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
-	// CORS for admin endpoints - restrict to localhost only
-	origin := r.Header.Get("Origin")
-	if origin != "" {
-		// Only allow localhost origins
-		if strings.HasPrefix(origin, "http://localhost:") ||
-		   strings.HasPrefix(origin, "http://127.0.0.1:") ||
-		   strings.HasPrefix(origin, "https://localhost:") ||
-		   strings.HasPrefix(origin, "https://127.0.0.1:") {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Password")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
-	}
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(204)
-		return
-	}
-
 	// 验证密码
 	password := r.Header.Get("X-Admin-Password")
 	if password == "" {
@@ -2314,9 +2047,7 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !config.VerifyPassword(password) {
-		// 添加延迟防止暴力破解
-		time.Sleep(2 * time.Second)
+	if password != config.GetPassword() {
 		w.WriteHeader(401)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
 		return
@@ -2351,12 +2082,16 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/models")
 		h.apiGetAccountModels(w, r, id)
 
+	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/overage") && r.Method == "POST":
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/overage")
+		h.apiSetAccountOverage(w, r, id)
+	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/overage") && r.Method == "GET":
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/overage")
+		h.apiGetAccountOverage(w, r, id)
+
 	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/full") && r.Method == "GET":
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/full")
 		h.apiGetAccountFull(w, r, id)
-	case strings.HasPrefix(path, "/accounts/") && strings.HasSuffix(path, "/overage") && r.Method == "POST":
-		id := strings.TrimSuffix(strings.TrimPrefix(path, "/accounts/"), "/overage")
-		h.apiSetOverage(w, r, id)
 	case strings.HasPrefix(path, "/accounts/") && r.Method == "DELETE":
 		h.apiDeleteAccount(w, r, strings.TrimPrefix(path, "/accounts/"))
 	case strings.HasPrefix(path, "/accounts/") && r.Method == "PUT":
@@ -2401,32 +2136,23 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiGetPromptFilter(w, r)
 	case path == "/prompt-filter" && r.Method == "POST":
 		h.apiUpdatePromptFilter(w, r)
-	case path == "/keys" && r.Method == "GET":
-		h.apiGetKeys(w, r)
-	case path == "/keys" && r.Method == "POST":
-		h.apiCreateKey(w, r)
-	case strings.HasPrefix(path, "/keys/") && strings.HasSuffix(path, "/refresh") && r.Method == "POST":
-		id := strings.TrimSuffix(strings.TrimPrefix(path, "/keys/"), "/refresh")
-		h.apiRefreshKey(w, r, id)
-	case strings.HasPrefix(path, "/keys/") && strings.HasSuffix(path, "/test") && r.Method == "POST":
-		id := strings.TrimSuffix(strings.TrimPrefix(path, "/keys/"), "/test")
-		h.apiTestKey(w, r, id)
-	case strings.HasPrefix(path, "/keys/") && r.Method == "PUT":
-		h.apiUpdateKey(w, r, strings.TrimPrefix(path, "/keys/"))
-	case strings.HasPrefix(path, "/keys/") && r.Method == "DELETE":
-		h.apiDeleteKey(w, r, strings.TrimPrefix(path, "/keys/"))
-	case path == "/audit-logs" && r.Method == "GET":
-		h.apiGetAuditLogs(w, r)
-	case path == "/audit-logs" && r.Method == "DELETE":
-		h.apiClearAuditLogs(w, r)
-	case path == "/request-logs" && r.Method == "GET":
-		h.apiGetRequestLogs(w, r)
-	case path == "/request-logs" && r.Method == "DELETE":
-		h.apiClearRequestLogs(w, r)
 	case path == "/version" && r.Method == "GET":
 		h.apiGetVersion(w, r)
 	case path == "/export" && r.Method == "POST":
 		h.apiExportAccounts(w, r)
+	case path == "/api-keys" && r.Method == "GET":
+		h.apiListApiKeys(w, r)
+	case path == "/api-keys" && r.Method == "POST":
+		h.apiCreateApiKey(w, r)
+	case strings.HasPrefix(path, "/api-keys/") && strings.HasSuffix(path, "/reset-usage") && r.Method == "POST":
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/api-keys/"), "/reset-usage")
+		h.apiResetApiKeyUsage(w, r, id)
+	case strings.HasPrefix(path, "/api-keys/") && r.Method == "GET":
+		h.apiGetApiKey(w, r, strings.TrimPrefix(path, "/api-keys/"))
+	case strings.HasPrefix(path, "/api-keys/") && r.Method == "PUT":
+		h.apiUpdateApiKey(w, r, strings.TrimPrefix(path, "/api-keys/"))
+	case strings.HasPrefix(path, "/api-keys/") && r.Method == "DELETE":
+		h.apiDeleteApiKey(w, r, strings.TrimPrefix(path, "/api-keys/"))
 	default:
 		w.WriteHeader(404)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Not Found"})
@@ -2449,53 +2175,47 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 		// 获取运行时统计
 		stats := statsMap[a.ID]
 
-		// 解析原始 UsageData 为结构化对象
-		var usageDataObj interface{}
-		if len(a.UsageData) > 0 {
-			json.Unmarshal(a.UsageData, &usageDataObj)
-
-			// 处理双重编码：如果解析结果是字符串，需要再次解析
-			if str, ok := usageDataObj.(string); ok {
-				var innerObj interface{}
-				if err := json.Unmarshal([]byte(str), &innerObj); err == nil {
-					usageDataObj = innerObj
-				}
-			}
-		}
-
-		// 判断账户状态：启用 + 有token + 未被ban = online
-		status := "offline"
-		if a.Enabled && a.AccessToken != "" && a.BanStatus == "" {
-			status = "online"
-		}
-
 		result[i] = map[string]interface{}{
-			"id":            a.ID,
-			"email":         a.Email,
-			"userId":        a.UserId,
-			"nickname":      a.Nickname,
-			"authMethod":    a.AuthMethod,
-			"provider":      a.Provider,
-			"region":        a.Region,
-			"enabled":       a.Enabled,
-			"status":        status,
-			"banStatus":     a.BanStatus,
-			"banReason":     a.BanReason,
-			"banTime":       a.BanTime,
-			"expiresAt":     a.ExpiresAt,
-			"hasToken":      a.AccessToken != "",
-			"machineId":     a.MachineId,
-			"weight":        a.Weight,
-			"allowOverage":  a.AllowOverage,
-			"overageWeight": a.OverageWeight,
-			"proxyURL":      a.ProxyURL,
-			"usageData":     usageDataObj,
-			"lastRefresh":   a.LastRefresh,
-			"requestCount":  stats.RequestCount,
-			"errorCount":    stats.ErrorCount,
-			"totalTokens":   stats.TotalTokens,
-			"totalCredits":  stats.TotalCredits,
-			"lastUsed":      stats.LastUsed,
+			"id":                a.ID,
+			"email":             a.Email,
+			"userId":            a.UserId,
+			"nickname":          a.Nickname,
+			"authMethod":        a.AuthMethod,
+			"provider":          a.Provider,
+			"region":            a.Region,
+			"enabled":           a.Enabled,
+			"banStatus":         a.BanStatus,
+			"banReason":         a.BanReason,
+			"banTime":           a.BanTime,
+			"expiresAt":         a.ExpiresAt,
+			"hasToken":          a.AccessToken != "",
+			"machineId":         a.MachineId,
+			"weight":            a.Weight,
+			"overageStatus":     a.OverageStatus,
+			"overageCapability": a.OverageCapability,
+			"overageCap":        a.OverageCap,
+			"overageRate":       a.OverageRate,
+			"currentOverages":   a.CurrentOverages,
+			"overageCheckedAt":  a.OverageCheckedAt,
+			"proxyURL":          a.ProxyURL,
+			"subscriptionType":  a.SubscriptionType,
+			"subscriptionTitle": a.SubscriptionTitle,
+			"daysRemaining":     a.DaysRemaining,
+			"usageCurrent":      a.UsageCurrent,
+			"usageLimit":        a.UsageLimit,
+			"usagePercent":      a.UsagePercent,
+			"nextResetDate":     a.NextResetDate,
+			"lastRefresh":       a.LastRefresh,
+			"trialUsageCurrent": a.TrialUsageCurrent,
+			"trialUsageLimit":   a.TrialUsageLimit,
+			"trialUsagePercent": a.TrialUsagePercent,
+			"trialStatus":       a.TrialStatus,
+			"trialExpiresAt":    a.TrialExpiresAt,
+			"requestCount":      stats.RequestCount,
+			"errorCount":        stats.ErrorCount,
+			"totalTokens":       stats.TotalTokens,
+			"totalCredits":      stats.TotalCredits,
+			"lastUsed":          stats.LastUsed,
 		}
 	}
 	json.NewEncoder(w).Encode(result)
@@ -2516,13 +2236,11 @@ func (h *Handler) apiAddAccount(w http.ResponseWriter, r *http.Request) {
 		account.Region = "us-east-1"
 	}
 
-	saved, err := config.AddAccount(account)
-	if err != nil {
+	if err := config.AddAccount(account); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	account = saved
 
 	h.pool.Reload()
 	// 新账号若已启用且有 token，立即拉取并缓存模型列表
@@ -2533,113 +2251,16 @@ func (h *Handler) apiAddAccount(w http.ResponseWriter, r *http.Request) {
 			}
 		}(account)
 	}
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "account.create",
-		Level:   "info",
-		User:    "admin",
-		Message: fmt.Sprintf("Account created: %s", account.Email),
-		Target:  account.Email,
-		Metadata: map[string]interface{}{
-			"accountId":  account.ID,
-			"authMethod": account.AuthMethod,
-			"region":     account.Region,
-		},
-	})
-
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": account.ID})
 }
 
-func (h *Handler) apiSetOverage(w http.ResponseWriter, r *http.Request, id string) {
-	var req struct {
-		Enabled bool `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON"})
-		return
-	}
-
-	// 获取账户
-	accounts := config.GetAccounts()
-	var account *config.Account
-	for i := range accounts {
-		if accounts[i].ID == id {
-			account = &accounts[i]
-			break
-		}
-	}
-	if account == nil {
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Account not found"})
-		return
-	}
-
-	// 检查账户是否支持超额
-	if len(account.UsageData) > 0 {
-		var usage UsageLimitsResponse
-		if err := json.Unmarshal(account.UsageData, &usage); err == nil {
-			if usage.SubscriptionInfo == nil || usage.SubscriptionInfo.OverageCapability != "OVERAGE_CAPABLE" {
-				w.WriteHeader(400)
-				json.NewEncoder(w).Encode(map[string]string{"error": "Account does not support overage"})
-				return
-			}
-		}
-	}
-
-	// 调用 SetUserPreference API
-	if err := SetUserPreference(account, req.Enabled); err != nil {
-		logger.Errorf("[SetOverage] Failed to set overage for %s: %v", account.Email, err)
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// 刷新账户信息以获取最新状态
-	info, err := RefreshAccountInfo(account)
-	if err != nil {
-		logger.Warnf("[SetOverage] Failed to refresh account info: %v", err)
-	} else {
-		config.UpdateAccountInfo(account.ID, *info)
-	}
-
-	h.pool.Reload()
-
-	w.WriteHeader(200)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
 func (h *Handler) apiDeleteAccount(w http.ResponseWriter, r *http.Request, id string) {
-	// Get account info before deletion for audit log
-	accounts := config.GetAccounts()
-	var accountEmail string
-	for _, acc := range accounts {
-		if acc.ID == id {
-			accountEmail = acc.Email
-			break
-		}
-	}
-
 	if err := config.DeleteAccount(id); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 	h.pool.Reload()
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "account.delete",
-		Level:   "warning",
-		User:    "admin",
-		Message: fmt.Sprintf("Account deleted: %s", accountEmail),
-		Target:  accountEmail,
-		Metadata: map[string]interface{}{
-			"accountId": id,
-		},
-	})
-
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
@@ -2668,8 +2289,6 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 
 	// 只更新传入的字段
 	oldEnabled := existing.Enabled
-	tokenUpdated := false
-
 	if v, ok := updates["enabled"].(bool); ok {
 		existing.Enabled = v
 	}
@@ -2682,35 +2301,14 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 	if v, ok := updates["weight"].(float64); ok {
 		existing.Weight = int(v)
 	}
-	if v, ok := updates["allowOverage"].(bool); ok {
-		existing.AllowOverage = v
-	}
-	if v, ok := updates["overageWeight"].(float64); ok {
-		existing.OverageWeight = clampInt(int(v), 1, 10)
-	}
 	if v, ok := updates["proxyURL"].(string); ok {
 		existing.ProxyURL = v
-	}
-
-	// 更新访问令牌和刷新令牌
-	if v, ok := updates["accessToken"].(string); ok && v != "" {
-		existing.AccessToken = v
-		tokenUpdated = true
-	}
-	if v, ok := updates["refreshToken"].(string); ok && v != "" {
-		existing.RefreshToken = v
-		tokenUpdated = true
 	}
 
 	if err := config.UpdateAccount(id, *existing); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
-	}
-
-	// 如果令牌被更新，同步到内存池
-	if tokenUpdated {
-		h.pool.UpdateToken(id, existing.AccessToken, existing.RefreshToken, existing.ExpiresAt)
 	}
 
 	h.pool.Reload()
@@ -2722,27 +2320,96 @@ func (h *Handler) apiUpdateAccount(w http.ResponseWriter, r *http.Request, id st
 			}
 		}(*existing)
 	}
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
 
-	// Add audit log
-	changes := make(map[string]interface{})
-	for key, value := range updates {
-		if key != "accessToken" && key != "refreshToken" { // Don't log sensitive tokens
-			changes[key] = value
+// apiGetAccountOverage 拉取并返回单个账号的上游 Overages 状态。
+// 同步把结果写回 config.json 缓存，确保 UI 与持久化一致。
+func (h *Handler) apiGetAccountOverage(w http.ResponseWriter, r *http.Request, id string) {
+	accounts := config.GetAccounts()
+	var account *config.Account
+	for i := range accounts {
+		if accounts[i].ID == id {
+			account = &accounts[i]
+			break
 		}
 	}
-	config.AddAuditLog(config.AuditLog{
-		Action:  "account.update",
-		Level:   "info",
-		User:    "admin",
-		Message: fmt.Sprintf("Account updated: %s", existing.Email),
-		Target:  existing.Email,
-		Changes: changes,
-		Metadata: map[string]interface{}{
-			"accountId": id,
-		},
-	})
+	if account == nil {
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Account not found"})
+		return
+	}
 
-	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+	snap, err := FetchOverageStatus(account)
+	if err != nil {
+		w.WriteHeader(502)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if persistErr := PersistOverageSnapshot(id, snap); persistErr != nil {
+		logger.Warnf("[Overage] persist GET overage failed for %s: %v", account.Email, persistErr)
+	}
+	h.pool.Reload()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"overageStatus":     snap.Status,
+		"overageCapability": snap.Capability,
+		"subscriptionTitle": snap.SubscriptionTitle,
+		"overageCap":        snap.OverageCap,
+		"overageRate":       snap.OverageRate,
+		"currentOverages":   snap.CurrentOverages,
+		"overageCheckedAt":  snap.CheckedAt,
+	})
+}
+
+// apiSetAccountOverage 翻转单个账号的上游 Overages 开关，并刷新缓存。
+// Body: {"enabled": true|false}
+func (h *Handler) apiSetAccountOverage(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON"})
+		return
+	}
+
+	accounts := config.GetAccounts()
+	var account *config.Account
+	for i := range accounts {
+		if accounts[i].ID == id {
+			account = &accounts[i]
+			break
+		}
+	}
+	if account == nil {
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Account not found"})
+		return
+	}
+
+	snap, err := SetOverageStatus(account, body.Enabled)
+	if err != nil {
+		w.WriteHeader(502)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if persistErr := PersistOverageSnapshot(id, snap); persistErr != nil {
+		logger.Warnf("[Overage] persist SET overage failed for %s: %v", account.Email, persistErr)
+	}
+	h.pool.Reload()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":           true,
+		"overageStatus":     snap.Status,
+		"overageCapability": snap.Capability,
+		"subscriptionTitle": snap.SubscriptionTitle,
+		"overageCap":        snap.OverageCap,
+		"overageRate":       snap.OverageRate,
+		"currentOverages":   snap.CurrentOverages,
+		"overageCheckedAt":  snap.CheckedAt,
+	})
 }
 
 // apiBatchAccounts 批量操作账号（启用/禁用/刷新）
@@ -2846,23 +2513,6 @@ func (h *Handler) apiBatchAccounts(w http.ResponseWriter, r *http.Request) {
 			"failed":    failCount,
 		})
 
-	case "delete":
-		successCount := 0
-		failCount := 0
-		for _, id := range req.IDs {
-			if err := config.DeleteAccount(id); err != nil {
-				failCount++
-			} else {
-				successCount++
-			}
-		}
-		h.pool.Reload()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"deleted": successCount,
-			"failed":  failCount,
-		})
-
 	default:
 		w.WriteHeader(400)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid action: " + req.Action})
@@ -2919,13 +2569,12 @@ func (h *Handler) apiCompleteIamSso(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取用户信息
-	email, userID, _ := auth.GetUserInfo(accessToken)
+	email, _, _ := auth.GetUserInfo(accessToken)
 
 	// 创建账号
 	account := config.Account{
 		ID:           auth.GenerateAccountID(),
 		Email:        email,
-		UserId:       userID,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ClientID:     clientID,
@@ -2937,13 +2586,11 @@ func (h *Handler) apiCompleteIamSso(w http.ResponseWriter, r *http.Request) {
 		MachineId:    config.GenerateMachineId(),
 	}
 
-	saved, err := config.AddAccount(account)
-	if err != nil {
+	if err := config.AddAccount(account); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	account = saved
 
 	h.pool.Reload()
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3012,13 +2659,12 @@ func (h *Handler) apiPollBuilderIdAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 授权完成，获取用户信息
-	email, userID, _ := auth.GetUserInfo(accessToken)
+	email, _, _ := auth.GetUserInfo(accessToken)
 
 	// 创建账号
 	account := config.Account{
 		ID:           auth.GenerateAccountID(),
 		Email:        email,
-		UserId:       userID,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ClientID:     clientID,
@@ -3031,13 +2677,11 @@ func (h *Handler) apiPollBuilderIdAuth(w http.ResponseWriter, r *http.Request) {
 		MachineId:    config.GenerateMachineId(),
 	}
 
-	saved, err := config.AddAccount(account)
-	if err != nil {
+	if err := config.AddAccount(account); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	account = saved
 
 	h.pool.Reload()
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3085,13 +2729,12 @@ func (h *Handler) apiImportSsoToken(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 获取用户信息
-		email, userID, _ := auth.GetUserInfo(accessToken)
+		email, _, _ := auth.GetUserInfo(accessToken)
 
 		// 创建账号
 		account := config.Account{
 			ID:           auth.GenerateAccountID(),
 			Email:        email,
-			UserId:       userID,
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
 			ClientID:     clientID,
@@ -3103,12 +2746,10 @@ func (h *Handler) apiImportSsoToken(w http.ResponseWriter, r *http.Request) {
 			MachineId:    config.GenerateMachineId(),
 		}
 
-		saved, err := config.AddAccount(account)
-		if err != nil {
+		if err := config.AddAccount(account); err != nil {
 			errors = append(errors, err.Error())
 			continue
 		}
-		account = saved
 
 		imported = append(imported, map[string]interface{}{
 			"id":    account.ID,
@@ -3211,13 +2852,12 @@ func (h *Handler) apiImportCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取用户信息
-	email, userID, _ := auth.GetUserInfo(accessToken)
+	email, _, _ := auth.GetUserInfo(accessToken)
 
 	// 创建账号
 	account := config.Account{
 		ID:           auth.GenerateAccountID(),
 		Email:        email,
-		UserId:       userID,
 		AccessToken:  accessToken,
 		RefreshToken: req.RefreshToken,
 		ClientID:     req.ClientID,
@@ -3231,13 +2871,11 @@ func (h *Handler) apiImportCredentials(w http.ResponseWriter, r *http.Request) {
 		ProfileArn:   newProfileArn,
 	}
 
-	saved, err := config.AddAccount(account)
-	if err != nil {
+	if err := config.AddAccount(account); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	account = saved
 
 	h.pool.Reload()
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3263,20 +2901,11 @@ func (h *Handler) apiGetStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) apiGetSettings(w http.ResponseWriter, r *http.Request) {
-	// 返回掩码密码（如果有密码）
-	password := config.GetPassword()
-	maskedPassword := ""
-	if password != "" {
-		maskedPassword = "********"
-	}
-
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"apiKey":         config.GetApiKey(),
-		"apiKeyRequired": config.IsApiKeyRequired(),
+		"requireApiKey":  config.IsApiKeyRequired(),
 		"port":           config.GetPort(),
 		"host":           config.GetHost(),
-		"password":       maskedPassword,
-		"proxyURL":       config.GetProxyURL(),
 		"allowOverUsage": config.GetAllowOverUsage(),
 	})
 }
@@ -3326,10 +2955,10 @@ func (h *Handler) apiUpdatePromptFilter(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Port           int    `json:"port"`
-		Password       string `json:"password"`
-		ProxyURL       string `json:"proxyURL"`
-		AllowOverUsage *bool  `json:"allowOverUsage,omitempty"`
+		ApiKey         *string `json:"apiKey,omitempty"`
+		RequireApiKey  *bool   `json:"requireApiKey,omitempty"`
+		Password       string  `json:"password,omitempty"`
+		AllowOverUsage *bool   `json:"allowOverUsage,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(400)
@@ -3337,8 +2966,7 @@ func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Host 固定为 127.0.0.1，不允许修改
-	if err := config.UpdateBasicSettings("127.0.0.1", req.Port, req.Password, req.ProxyURL); err != nil {
+	if err := config.UpdateSettingsPatch(req.ApiKey, req.RequireApiKey, req.Password); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -3351,27 +2979,15 @@ func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		// Rebuild the pool so over-quota accounts are re-included or dropped immediately.
+		h.pool.Reload()
 	}
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "settings.update",
-		Level:   "info",
-		User:    "admin",
-		Message: "Settings updated",
-		Metadata: map[string]interface{}{
-			"port":           req.Port,
-			"allowOverUsage": req.AllowOverUsage,
-		},
-	})
 
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
 func (h *Handler) apiGetStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"accounts":        h.pool.Count(),
-		"available":       h.pool.AvailableCount(),
 		"totalRequests":   atomic.LoadInt64(&h.totalRequests),
 		"successRequests": atomic.LoadInt64(&h.successRequests),
 		"failedRequests":  atomic.LoadInt64(&h.failedRequests),
@@ -3390,15 +3006,6 @@ func (h *Handler) apiResetStats(w http.ResponseWriter, r *http.Request) {
 	h.totalCredits = 0
 	h.creditsMu.Unlock()
 	config.UpdateStats(0, 0, 0, 0, 0)
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "stats.reset",
-		Level:   "warning",
-		User:    "admin",
-		Message: "Statistics reset",
-	})
-
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
@@ -3571,120 +3178,9 @@ func (h *Handler) apiRefreshAccount(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	// 检查配额使用率，自动禁用用完的账户
-	usageFields := parseUsageData(info.UsageData)
-	usagePercent := float64(0)
-	if percent, ok := usageFields["usagePercent"].(float64); ok {
-		usagePercent = percent
-	}
-
-	// 如果配额使用率 >= 99%，自动禁用账户（除非允许超额使用）
-	accountDisabled := false
-	if usagePercent >= 0.99 && account.Enabled && !account.AllowOverage {
-		logger.Warnf("[AutoDisable] Account %s quota exhausted (%.1f%%), auto-disabling", account.Email, usagePercent*100)
-		if err := config.DisableAccount(id, fmt.Sprintf("Quota exhausted (%.1f%%)", usagePercent*100)); err != nil {
-			logger.Errorf("[AutoDisable] Failed to disable account %s: %v", account.Email, err)
-		} else {
-			accountDisabled = true
-			config.AddAuditLog(config.AuditLog{
-				Action:  "account.auto_disable",
-				Level:   "warning",
-				User:    "system",
-				Message: fmt.Sprintf("Account auto-disabled due to quota exhaustion (%.1f%%)", usagePercent*100),
-				Target:  account.Email,
-				Metadata: map[string]interface{}{
-					"accountId":    id,
-					"usagePercent": usagePercent * 100,
-				},
-			})
-		}
-	}
-
-	// 重新加载 pool 以获取最新的运行时统计
-	h.pool.Reload()
-
-	// 获取完整的账户数据（包括运行时统计）
-	// 如果账户被自动禁用，需要重新从配置中获取最新状态
-	if accountDisabled {
-		accounts = config.GetAccounts()
-	}
-	poolAccounts := h.pool.GetAllAccounts()
-
-	var fullAccount *config.Account
-	for i := range accounts {
-		if accounts[i].ID == id {
-			fullAccount = &accounts[i]
-			break
-		}
-	}
-
-	if fullAccount == nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Account not found after refresh"})
-		return
-	}
-
-	// 获取运行时统计
-	var stats config.Account
-	for _, a := range poolAccounts {
-		if a.ID == id {
-			stats = a
-			break
-		}
-	}
-
-	// 解析 UsageData
-	var usageDataObj interface{}
-	if len(fullAccount.UsageData) > 0 {
-		json.Unmarshal(fullAccount.UsageData, &usageDataObj)
-		// 处理双重编码
-		if str, ok := usageDataObj.(string); ok {
-			var innerObj interface{}
-			if err := json.Unmarshal([]byte(str), &innerObj); err == nil {
-				usageDataObj = innerObj
-			}
-		}
-	}
-
-	// 判断账户状态：启用 + 有token + 未被ban = online
-	status := "offline"
-	if fullAccount.Enabled && fullAccount.AccessToken != "" && fullAccount.BanStatus == "" {
-		status = "online"
-	}
-
-	// 返回完整的账户数据（与 apiGetAccounts 格式一致）
-	result := map[string]interface{}{
-		"id":            fullAccount.ID,
-		"email":         fullAccount.Email,
-		"userId":        fullAccount.UserId,
-		"nickname":      fullAccount.Nickname,
-		"authMethod":    fullAccount.AuthMethod,
-		"provider":      fullAccount.Provider,
-		"region":        fullAccount.Region,
-		"enabled":       fullAccount.Enabled,
-		"status":        status,
-		"banStatus":     fullAccount.BanStatus,
-		"banReason":     fullAccount.BanReason,
-		"banTime":       fullAccount.BanTime,
-		"expiresAt":     fullAccount.ExpiresAt,
-		"hasToken":      fullAccount.AccessToken != "",
-		"machineId":     fullAccount.MachineId,
-		"weight":        fullAccount.Weight,
-		"allowOverage":  fullAccount.AllowOverage,
-		"overageWeight": fullAccount.OverageWeight,
-		"proxyURL":      fullAccount.ProxyURL,
-		"usageData":     usageDataObj,
-		"lastRefresh":   fullAccount.LastRefresh,
-		"requestCount":  stats.RequestCount,
-		"errorCount":    stats.ErrorCount,
-		"totalTokens":   stats.TotalTokens,
-		"totalCredits":  stats.TotalCredits,
-		"lastUsed":      stats.LastUsed,
-	}
-
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"account": result,
+		"info":    info,
 	})
 }
 
@@ -3717,15 +3213,6 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 		}
 	}
 
-	// 动态解析UsageData
-	usageFields := parseUsageData(account.UsageData)
-
-	// 解析完整的 usageData 对象
-	var usageDataObj interface{}
-	if len(account.UsageData) > 0 {
-		json.Unmarshal(account.UsageData, &usageDataObj)
-	}
-
 	// 返回完整账号信息（包含敏感字段）
 	result := map[string]interface{}{
 		"id":                account.ID,
@@ -3742,26 +3229,30 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 		"expiresAt":         account.ExpiresAt,
 		"machineId":         account.MachineId,
 		"weight":            account.Weight,
-		"allowOverage":      account.AllowOverage,
-		"overageWeight":     account.OverageWeight,
+		"overageStatus":     account.OverageStatus,
+		"overageCapability": account.OverageCapability,
+		"overageCap":        account.OverageCap,
+		"overageRate":       account.OverageRate,
+		"currentOverages":   account.CurrentOverages,
+		"overageCheckedAt":  account.OverageCheckedAt,
 		"proxyURL":          account.ProxyURL,
 		"enabled":           account.Enabled,
 		"banStatus":         account.BanStatus,
 		"banReason":         account.BanReason,
 		"banTime":           account.BanTime,
-		"subscriptionType":  usageFields["subscriptionType"],
-		"subscriptionTitle": usageFields["subscriptionTitle"],
-		"usageCurrent":      usageFields["usageCurrent"],
-		"usageLimit":        usageFields["usageLimit"],
-		"usagePercent":      usageFields["usagePercent"],
-		"nextResetDate":     usageFields["nextResetDate"],
+		"subscriptionType":  account.SubscriptionType,
+		"subscriptionTitle": account.SubscriptionTitle,
+		"daysRemaining":     account.DaysRemaining,
+		"usageCurrent":      account.UsageCurrent,
+		"usageLimit":        account.UsageLimit,
+		"usagePercent":      account.UsagePercent,
+		"nextResetDate":     account.NextResetDate,
 		"lastRefresh":       account.LastRefresh,
-		"trialUsageCurrent": usageFields["trialUsageCurrent"],
-		"trialUsageLimit":   usageFields["trialUsageLimit"],
-		"trialUsagePercent": usageFields["trialUsagePercent"],
-		"trialStatus":       usageFields["trialStatus"],
-		"trialExpiresAt":    usageFields["trialExpiresAt"],
-		"usageData":         usageDataObj, // 添加完整的 usageData 对象
+		"trialUsageCurrent": account.TrialUsageCurrent,
+		"trialUsageLimit":   account.TrialUsageLimit,
+		"trialUsagePercent": account.TrialUsagePercent,
+		"trialStatus":       account.TrialStatus,
+		"trialExpiresAt":    account.TrialExpiresAt,
 		"requestCount":      stats.RequestCount,
 		"errorCount":        stats.ErrorCount,
 		"totalTokens":       stats.TotalTokens,
@@ -3825,7 +3316,7 @@ func (h *Handler) apiGetAccountModelsCached(w http.ResponseWriter, r *http.Reque
 // ==================== 静态文件服务 ====================
 
 func (h *Handler) serveAdminPage(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "web/dist/index.html")
+	http.ServeFile(w, r, "web/index.html")
 }
 
 func (h *Handler) serveStaticFile(w http.ResponseWriter, r *http.Request) {
@@ -4067,40 +3558,15 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 			authMethod = "IdC"
 		}
 
-		// 动态解析UsageData
-		usageFields := parseUsageData(a.UsageData)
-
 		// 映射订阅类型
 		subType := "Free"
-		if subTypeStr, ok := usageFields["subscriptionType"].(string); ok {
-			rawType := strings.ToUpper(subTypeStr)
-			if strings.Contains(rawType, "PRO_PLUS") || strings.Contains(rawType, "PROPLUS") {
-				subType = "Pro_Plus"
-			} else if strings.Contains(rawType, "PRO") {
-				subType = "Pro"
-			} else if strings.Contains(rawType, "POWER") {
-				subType = "Pro_Plus"
-			}
-		}
-
-		subTitle := ""
-		if title, ok := usageFields["subscriptionTitle"].(string); ok {
-			subTitle = title
-		}
-
-		usageCurrent := float64(0)
-		if current, ok := usageFields["usageCurrent"].(float64); ok {
-			usageCurrent = current
-		}
-
-		usageLimit := float64(0)
-		if limit, ok := usageFields["usageLimit"].(float64); ok {
-			usageLimit = limit
-		}
-
-		usagePercent := float64(0)
-		if percent, ok := usageFields["usagePercent"].(float64); ok {
-			usagePercent = percent
+		rawType := strings.ToUpper(a.SubscriptionType)
+		if strings.Contains(rawType, "PRO_PLUS") || strings.Contains(rawType, "PROPLUS") {
+			subType = "Pro_Plus"
+		} else if strings.Contains(rawType, "PRO") {
+			subType = "Pro"
+		} else if strings.Contains(rawType, "POWER") {
+			subType = "Pro_Plus"
 		}
 
 		exportAccounts = append(exportAccounts, ExportAccount{
@@ -4123,12 +3589,12 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 			},
 			Subscription: ExportSubscription{
 				Type:  subType,
-				Title: subTitle,
+				Title: a.SubscriptionTitle,
 			},
 			Usage: ExportUsage{
-				Current:     usageCurrent,
-				Limit:       usageLimit,
-				PercentUsed: usagePercent,
+				Current:     a.UsageCurrent,
+				Limit:       a.UsageLimit,
+				PercentUsed: a.UsagePercent,
 				LastUpdated: time.Now().UnixMilli(),
 			},
 			Tags:       []string{},
@@ -4158,342 +3624,3 @@ func clampInt(v, min, max int) int {
 	}
 	return v
 }
-
-// ==================== API Keys Management ====================
-
-func (h *Handler) apiGetKeys(w http.ResponseWriter, r *http.Request) {
-	keys := config.GetApiKeys()
-	json.NewEncoder(w).Encode(keys)
-}
-
-func (h *Handler) apiCreateKey(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        string   `json:"name"`
-		ExpiresIn   string   `json:"expiresIn"`   // "7d", "30d", "90d", "1y", "" (never)
-		Permissions []string `json:"permissions"`
-		Enabled     bool     `json:"enabled"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request"})
-		return
-	}
-
-	// Generate new API key
-	keyValue := config.GenerateApiKey()
-
-	// Calculate expiration
-	var expiresAt int64
-	if req.ExpiresIn != "" {
-		now := time.Now()
-		switch req.ExpiresIn {
-		case "7d":
-			expiresAt = now.AddDate(0, 0, 7).Unix()
-		case "30d":
-			expiresAt = now.AddDate(0, 0, 30).Unix()
-		case "90d":
-			expiresAt = now.AddDate(0, 0, 90).Unix()
-		case "1y":
-			expiresAt = now.AddDate(1, 0, 0).Unix()
-		}
-	}
-
-	// Create API key
-	apiKey := config.ApiKey{
-		ID:          config.GenerateMachineId(),
-		Name:        req.Name,
-		Key:         keyValue,
-		Enabled:     req.Enabled,
-		Permissions: req.Permissions,
-		ExpiresAt:   expiresAt,
-	}
-
-	if err := config.AddApiKey(apiKey); err != nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to create API key"})
-		return
-	}
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "apikey.create",
-		Level:   "info",
-		User:    "admin",
-		Message: fmt.Sprintf("API key created: %s", req.Name),
-		Target:  req.Name,
-		Metadata: map[string]interface{}{
-			"keyId":       apiKey.ID,
-			"permissions": req.Permissions,
-			"expiresAt":   expiresAt,
-		},
-	})
-
-	// Return the key (only time it's shown)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":          apiKey.ID,
-		"name":        apiKey.Name,
-		"key":         keyValue, // Only shown once
-		"enabled":     apiKey.Enabled,
-		"permissions": apiKey.Permissions,
-		"createdAt":   apiKey.CreatedAt,
-		"expiresAt":   apiKey.ExpiresAt,
-	})
-}
-
-func (h *Handler) apiUpdateKey(w http.ResponseWriter, r *http.Request, id string) {
-	var req struct {
-		Name        string   `json:"name"`
-		Enabled     bool     `json:"enabled"`
-		Permissions []string `json:"permissions"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request"})
-		return
-	}
-
-	// Get existing key
-	existingKey := config.GetApiKeyByID(id)
-	if existingKey == nil {
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]string{"error": "API key not found"})
-		return
-	}
-
-	// Update fields
-	existingKey.Name = req.Name
-	existingKey.Enabled = req.Enabled
-	existingKey.Permissions = req.Permissions
-
-	if err := config.UpdateApiKey(id, *existingKey); err != nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "apikey.update",
-		Level:   "info",
-		User:    "admin",
-		Message: fmt.Sprintf("API key updated: %s", req.Name),
-		Target:  req.Name,
-		Metadata: map[string]interface{}{
-			"keyId":   id,
-			"enabled": req.Enabled,
-		},
-	})
-
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (h *Handler) apiDeleteKey(w http.ResponseWriter, r *http.Request, id string) {
-	// Get key info before deletion for audit log
-	existingKey := config.GetApiKeyByID(id)
-	var keyName string
-	if existingKey != nil {
-		keyName = existingKey.Name
-	}
-
-	if err := config.DeleteApiKey(id); err != nil {
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "apikey.delete",
-		Level:   "warning",
-		User:    "admin",
-		Message: fmt.Sprintf("API key deleted: %s", keyName),
-		Target:  keyName,
-		Metadata: map[string]interface{}{
-			"keyId": id,
-		},
-	})
-
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (h *Handler) apiRefreshKey(w http.ResponseWriter, r *http.Request, id string) {
-	existingKey := config.GetApiKeyByID(id)
-	if existingKey == nil {
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]string{"error": "API key not found"})
-		return
-	}
-
-	// Generate new key
-	newKey := config.GenerateApiKey()
-	hash := sha256.Sum256([]byte(newKey))
-	newHash := hex.EncodeToString(hash[:])
-
-	// Update the key
-	existingKey.KeyHash = newHash
-	existingKey.Key = ""
-	if err := config.UpdateApiKey(id, *existingKey); err != nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Add audit log
-	config.AddAuditLog(config.AuditLog{
-		Action:  "apikey.refresh",
-		Level:   "info",
-		User:    "admin",
-		Message: fmt.Sprintf("API key refreshed: %s", existingKey.Name),
-		Target:  existingKey.Name,
-		Metadata: map[string]interface{}{
-			"keyId": id,
-		},
-	})
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "ok",
-		"key":    newKey,
-	})
-}
-
-func (h *Handler) apiTestKey(w http.ResponseWriter, r *http.Request, id string) {
-	existingKey := config.GetApiKeyByID(id)
-	if existingKey == nil {
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]string{"error": "API key not found"})
-		return
-	}
-
-	if !existingKey.Enabled {
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(map[string]string{"error": "API key is disabled"})
-		return
-	}
-
-	// Simple connectivity test - just verify the key exists and is enabled
-	start := time.Now()
-	responseTime := time.Since(start).Milliseconds()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"responseTime": responseTime,
-		"message":      "API key is valid and enabled",
-	})
-}
-
-// ==================== Audit Logs API ====================
-
-func (h *Handler) apiGetAuditLogs(w http.ResponseWriter, r *http.Request) {
-	logs := config.GetAuditLogs()
-	json.NewEncoder(w).Encode(logs)
-}
-
-func (h *Handler) apiClearAuditLogs(w http.ResponseWriter, r *http.Request) {
-	if err := config.ClearAuditLogs(); err != nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Log the clear action
-	config.AddAuditLog(config.AuditLog{
-		Action:  "auditlogs.clear",
-		Level:   "warning",
-		User:    "admin",
-		Message: "Audit logs cleared",
-	})
-
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-// ==================== End Audit Logs API ====================
-
-// ==================== Request Logs API ====================
-
-func (h *Handler) apiGetRequestLogs(w http.ResponseWriter, r *http.Request) {
-	// 获取分页参数
-	pageStr := r.URL.Query().Get("page")
-	pageSizeStr := r.URL.Query().Get("pageSize")
-
-	page := 1
-	pageSize := 50 // 默认每页50条
-
-	if pageStr != "" {
-		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-			page = p
-		}
-	}
-
-	if pageSizeStr != "" {
-		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps >= 0 {
-			pageSize = ps
-		}
-	}
-
-	allLogs := config.GetRequestLogs()
-	total := len(allLogs)
-
-	// pageSize 为 0 表示返回全部
-	if pageSize == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"logs":     allLogs,
-			"total":    total,
-			"page":     1,
-			"pageSize": total,
-			"pages":    1,
-		})
-		return
-	}
-
-	// 计算分页
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start >= total {
-		// 超出范围，返回空数组
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"logs":     []interface{}{},
-			"total":    total,
-			"page":     page,
-			"pageSize": pageSize,
-			"pages":    (total + pageSize - 1) / pageSize,
-		})
-		return
-	}
-
-	if end > total {
-		end = total
-	}
-
-	logs := allLogs[start:end]
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"logs":     logs,
-		"total":    total,
-		"page":     page,
-		"pageSize": pageSize,
-		"pages":    (total + pageSize - 1) / pageSize,
-	})
-}
-
-func (h *Handler) apiClearRequestLogs(w http.ResponseWriter, r *http.Request) {
-	if err := config.ClearRequestLogs(); err != nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Log the clear action
-	config.AddAuditLog(config.AuditLog{
-		Action:  "requestlogs.clear",
-		Level:   "warning",
-		User:    "admin",
-		Message: "Request logs cleared",
-	})
-
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-// ==================== End Request Logs API ====================

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Diagnose with an AI coding assistant / 借助 AI 编程助手排查
+    url: https://claude.com/claude-code
+    about: Please attempt to diagnose the issue using Claude Code, Codex, Cursor, or GitHub Copilot before opening a ticket. / 提交 issue 前，请先使用 Claude Code、Codex、Cursor 或 GitHub Copilot 进行排查。
+  - name: README and documentation / README 与文档
+    url: https://github.com/Quorinex/Kiro-Go#readme
+    about: Many configuration-related questions are addressed in the documentation. / 许多与配置相关的问题在文档中已有说明。

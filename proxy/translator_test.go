@@ -53,23 +53,45 @@ func TestOpenAIToKiroPreservesStructuredAssistantAndToolContent(t *testing.T) {
 
 	payload := OpenAIToKiro(req, false)
 
-	if len(payload.ConversationState.History) != 2 {
-		t.Fatalf("expected 2 history items, got %d", len(payload.ConversationState.History))
+	// History starts with a priming pair.
+	if len(payload.ConversationState.History) != 4 {
+		t.Fatalf("expected 4 history items (2 priming + 2 conversation), got %d", len(payload.ConversationState.History))
 	}
 
-	firstHistoryUser := payload.ConversationState.History[0].UserInputMessage
-	if firstHistoryUser == nil {
-		t.Fatalf("expected first history item to be user message")
+	// history[0]: priming user
+	primingUser := payload.ConversationState.History[0].UserInputMessage
+	if primingUser == nil {
+		t.Fatalf("expected history[0] to be priming user message")
 	}
-	if !strings.Contains(firstHistoryUser.Content, "system-a") ||
-		!strings.Contains(firstHistoryUser.Content, "system-b") ||
-		!strings.Contains(firstHistoryUser.Content, "first-question") {
-		t.Fatalf("expected merged system+user content, got %q", firstHistoryUser.Content)
+	if !strings.Contains(primingUser.Content, "system-a") || !strings.Contains(primingUser.Content, "system-b") {
+		t.Fatalf("expected priming user message to contain system prompt, got %q", primingUser.Content)
+	}
+	if strings.Contains(primingUser.Content, "first-question") {
+		t.Fatalf("expected system prompt priming not to contain user question, got %q", primingUser.Content)
 	}
 
-	historyAssistant := payload.ConversationState.History[1].AssistantResponseMessage
+	// history[1]: priming assistant
+	primingAssistant := payload.ConversationState.History[1].AssistantResponseMessage
+	if primingAssistant == nil {
+		t.Fatalf("expected history[1] to be priming assistant message")
+	}
+	if primingAssistant.Content != "I will follow these instructions." {
+		t.Fatalf("expected priming assistant ack, got %q", primingAssistant.Content)
+	}
+
+	// history[2]: first user turn
+	firstConvUser := payload.ConversationState.History[2].UserInputMessage
+	if firstConvUser == nil {
+		t.Fatalf("expected history[2] to be first conversation user message")
+	}
+	if !strings.Contains(firstConvUser.Content, "first-question") {
+		t.Fatalf("expected history[2] to contain first-question, got %q", firstConvUser.Content)
+	}
+
+	// history[3]: assistant reply
+	historyAssistant := payload.ConversationState.History[3].AssistantResponseMessage
 	if historyAssistant == nil {
-		t.Fatalf("expected second history item to be assistant message")
+		t.Fatalf("expected history[3] to be assistant message")
 	}
 	if historyAssistant.Content != "assistant-structured" {
 		t.Fatalf("expected assistant structured content to be preserved, got %q", historyAssistant.Content)
@@ -275,5 +297,164 @@ func TestToolResultsContinuationIncludesInstructionPrefix(t *testing.T) {
 	}
 	if !strings.Contains(content, "result-1") {
 		t.Fatalf("expected tool result text in continuation content, got %q", content)
+	}
+}
+
+func TestEnsureObjectSchemaRemovesKiroRejectedFieldsRecursively(t *testing.T) {
+	input := map[string]interface{}{
+		"type":                 "object",
+		"required":             []interface{}{},
+		"additionalProperties": false,
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":                 "string",
+				"required":             nil,
+				"additionalProperties": map[string]interface{}{"type": "string"},
+			},
+			"options": map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]interface{}{
+					"force": map[string]interface{}{"type": "boolean"},
+				},
+			},
+		},
+		"anyOf": []interface{}{
+			map[string]interface{}{
+				"type":                 "object",
+				"required":             []interface{}{},
+				"additionalProperties": false,
+			},
+		},
+	}
+
+	got := ensureObjectSchema(input).(map[string]interface{})
+	if schemaContainsKey(got, "additionalProperties") {
+		t.Fatalf("expected additionalProperties to be removed recursively, got %#v", got)
+	}
+	if schemaContainsKey(got, "required") {
+		t.Fatalf("expected empty/nil required fields to be removed recursively, got %#v", got)
+	}
+	if _, stillPresent := input["additionalProperties"]; !stillPresent {
+		t.Fatalf("expected sanitizer not to mutate caller schema")
+	}
+}
+
+func TestConvertOpenAIToolsSanitizesSchemaAndDescription(t *testing.T) {
+	var tool OpenAITool
+	tool.Type = "function"
+	tool.Function.Name = "read_file"
+	tool.Function.Parameters = map[string]interface{}{
+		"type":                 "object",
+		"required":             []string{},
+		"additionalProperties": false,
+	}
+
+	tools := convertOpenAITools([]OpenAITool{tool})
+	if len(tools) != 1 {
+		t.Fatalf("expected one converted tool, got %d", len(tools))
+	}
+	if strings.TrimSpace(tools[0].ToolSpecification.Description) == "" {
+		t.Fatalf("expected fallback tool description")
+	}
+	schema := tools[0].ToolSpecification.InputSchema.JSON.(map[string]interface{})
+	if schemaContainsKey(schema, "additionalProperties") {
+		t.Fatalf("expected OpenAI tool schema to be sanitized, got %#v", schema)
+	}
+	if schemaContainsKey(schema, "required") {
+		t.Fatalf("expected empty required field to be removed, got %#v", schema)
+	}
+}
+
+func schemaContainsKey(value interface{}, key string) bool {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if _, ok := v[key]; ok {
+			return true
+		}
+		for _, child := range v {
+			if schemaContainsKey(child, key) {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, child := range v {
+			if schemaContainsKey(child, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestParseModelAndThinking(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantModel    string
+		wantThinking bool
+	}{
+		// Format normalization: dash → dot for new versions without code changes.
+		{"new opus dash form", "claude-opus-4-8", "claude-opus-4.8", false},
+		{"new opus dot form", "claude-opus-4.8", "claude-opus-4.8", false},
+		{"existing opus dash form", "claude-opus-4-7", "claude-opus-4.7", false},
+		{"existing opus dot form", "claude-opus-4.7", "claude-opus-4.7", false},
+		{"sonnet dash form", "claude-sonnet-4-6", "claude-sonnet-4.6", false},
+		{"sonnet dot form", "claude-sonnet-4.6", "claude-sonnet-4.6", false},
+		{"haiku dash form", "claude-haiku-4-5", "claude-haiku-4.5", false},
+		{"haiku dot form", "claude-haiku-4.5", "claude-haiku-4.5", false},
+		{"future major bump", "claude-sonnet-5-0", "claude-sonnet-5.0", false},
+
+		// Bare family name passes through (no minor to normalize).
+		{"bare sonnet 4", "claude-sonnet-4", "claude-sonnet-4", false},
+
+		// Dated snapshot must hit the alias before the regex rewrites it.
+		{"dated sonnet snapshot", "claude-sonnet-4-20250514", "claude-sonnet-4", false},
+
+		// Cross-family legacy IDs.
+		{"claude 3.5 sonnet", "claude-3-5-sonnet", "claude-sonnet-4.5", false},
+		{"claude 3 opus", "claude-3-opus", "claude-sonnet-4.5", false},
+		{"claude 3 sonnet", "claude-3-sonnet", "claude-sonnet-4", false},
+		{"claude 3 haiku", "claude-3-haiku", "claude-haiku-4.5", false},
+
+		// Non-Anthropic fallbacks.
+		{"gpt-4-turbo", "gpt-4-turbo", "claude-sonnet-4.5", false},
+		{"gpt-4o", "gpt-4o", "claude-sonnet-4.5", false},
+		{"gpt-4", "gpt-4", "claude-sonnet-4.5", false},
+		{"gpt-3.5-turbo", "gpt-3.5-turbo", "claude-sonnet-4.5", false},
+
+		// Thinking suffix is stripped before mapping.
+		{"thinking suffix on dash form", "claude-opus-4-8-thinking", "claude-opus-4.8", true},
+		{"thinking suffix on dot form", "claude-sonnet-4.5-thinking", "claude-sonnet-4.5", true},
+		{"thinking suffix on legacy alias", "claude-3-5-sonnet-thinking", "claude-sonnet-4.5", true},
+
+		// Unknown models pass through unchanged.
+		{"unknown model", "some-other-model", "some-other-model", false},
+		{"misspelled claude family", "claude-opux-4-8", "claude-opux-4-8", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotModel, gotThinking := ParseModelAndThinking(tc.input, "-thinking")
+			if gotModel != tc.wantModel {
+				t.Errorf("model: got %q, want %q", gotModel, tc.wantModel)
+			}
+			if gotThinking != tc.wantThinking {
+				t.Errorf("thinking: got %v, want %v", gotThinking, tc.wantThinking)
+			}
+		})
+	}
+}
+
+func TestParseModelAndThinkingDoesNotRewriteDatedSnapshotMinor(t *testing.T) {
+	// Guards the \b boundary in claudeVersionPattern: without it, the regex would
+	// rewrite "claude-sonnet-4-20250514" to "claude-sonnet-4.20250514" before the
+	// alias table could redirect it.
+	got, _ := ParseModelAndThinking("claude-sonnet-4-20250514", "-thinking")
+	if got != "claude-sonnet-4" {
+		t.Fatalf("dated snapshot must alias to claude-sonnet-4, got %q", got)
+	}
+	if strings.Contains(got, ".") {
+		t.Fatalf("dated snapshot must not be rewritten with a dot, got %q", got)
 	}
 }

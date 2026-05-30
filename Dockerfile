@@ -1,5 +1,5 @@
 # builder 阶段始终运行在构建机原生平台（amd64），用 Go 交叉编译目标平台二进制
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -20,6 +20,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 COPY --from=builder /app/kiro-go .
 COPY --from=builder /app/web ./web
+RUN mkdir -p /app/data
 
 EXPOSE 8080
 VOLUME /app/data

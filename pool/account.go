@@ -3,7 +3,6 @@
 package pool
 
 import (
-	"encoding/json"
 	"kiro-go/config"
 	"strings"
 	"sync"
@@ -11,7 +10,6 @@ import (
 	"time"
 )
 
-const overageFrequencyScale = 10
 const tokenRefreshSkewSeconds int64 = 120
 
 // AccountPool 账号池
@@ -43,21 +41,22 @@ func GetPool() *AccountPool {
 	return pool
 }
 
-// Reload 从配置重新加载账号
-// 构建加权列表：weight<=1 出现 1 次，weight>=2 出现 weight 次
+// Reload rebuilds the weighted account list from config.
+// Weight <= 1 → 1 entry; weight >= 2 → weight entries.
+// Over-quota accounts are dropped unless either the per-account upstream
+// Overages switch (OverageStatus=ENABLED) or the global AllowOverUsage
+// setting permits over-quota routing.
 func (p *AccountPool) Reload() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	enabled := config.GetEnabledAccounts()
+	allowOverUsage := config.GetAllowOverUsage()
 	var weighted []config.Account
 	for _, a := range enabled {
-		w := effectiveWeight(a.Weight) * overageFrequencyScale
-		if isOverUsageLimit(a) {
-			if !a.AllowOverage {
-				continue
-			}
-			w = effectiveOverageWeight(a.OverageWeight)
+		if isQuotaBlocked(a, allowOverUsage) {
+			continue
 		}
+		w := effectiveWeight(a.Weight)
 		for j := 0; j < w; j++ {
 			weighted = append(weighted, a)
 		}
@@ -68,6 +67,11 @@ func (p *AccountPool) Reload() {
 
 // GetNext 获取下一个可用账号（加权轮询）
 func (p *AccountPool) GetNext() *config.Account {
+	return p.GetNextExcluding(nil)
+}
+
+// GetNextExcluding 获取下一个可用账号（加权轮询），并跳过指定账号。
+func (p *AccountPool) GetNextExcluding(excluded map[string]bool) *config.Account {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -85,6 +89,10 @@ func (p *AccountPool) GetNext() *config.Account {
 		idx := atomic.AddUint64(&p.currentIndex, 1) % uint64(n)
 		acc := &p.accounts[idx]
 
+		if excluded != nil && excluded[acc.ID] {
+			seen[acc.ID] = true
+			continue
+		}
 		if seen[acc.ID] {
 			continue
 		}
@@ -101,8 +109,8 @@ func (p *AccountPool) GetNext() *config.Account {
 			continue
 		}
 
-		// 跳过额度已用尽的账号（账号级 AllowOverage 或全局 AllowOverUsage 可放行）
-		if isOverUsageLimit(*acc) && !acc.AllowOverage && !allowOverUsage {
+		// Skip accounts whose quota is exhausted, unless overrides apply.
+		if isQuotaBlocked(*acc, allowOverUsage) {
 			seen[acc.ID] = true
 			continue
 		}
@@ -110,13 +118,15 @@ func (p *AccountPool) GetNext() *config.Account {
 		return acc
 	}
 
-	// 无可用账号，返回冷却时间最短的（排除额度用尽的，除非允许超额）
+		// 无可用账号，返回冷却时间最短的（排除额度用尽的，除非允许超额）
 	var best *config.Account
 	var earliest time.Time
 	for i := range p.accounts {
 		acc := &p.accounts[i]
-		// 额度用尽的账号不作为 fallback（除非账号级或全局允许超额）
-		if isOverUsageLimit(*acc) && !acc.AllowOverage && !allowOverUsage {
+		if excluded != nil && excluded[acc.ID] {
+			continue
+		}
+		if isQuotaBlocked(*acc, allowOverUsage) {
 			continue
 		}
 		if cooldown, ok := p.cooldowns[acc.ID]; ok {
@@ -172,6 +182,11 @@ func (p *AccountPool) accountHasModel(accountID, model string) bool {
 // model 应为去掉 thinking 后缀的实际模型名。
 // 若无账号有该模型列表数据，行为与 GetNext 相同（乐观路由）。
 func (p *AccountPool) GetNextForModel(model string) *config.Account {
+	return p.GetNextForModelExcluding(model, nil)
+}
+
+// GetNextForModelExcluding 获取下一个支持指定模型的可用账号，并跳过指定账号。
+func (p *AccountPool) GetNextForModelExcluding(model string, excluded map[string]bool) *config.Account {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -188,6 +203,10 @@ func (p *AccountPool) GetNextForModel(model string) *config.Account {
 		idx := atomic.AddUint64(&p.currentIndex, 1) % uint64(n)
 		acc := &p.accounts[idx]
 
+		if excluded != nil && excluded[acc.ID] {
+			seen[acc.ID] = true
+			continue
+		}
 		if seen[acc.ID] {
 			continue
 		}
@@ -203,7 +222,7 @@ func (p *AccountPool) GetNextForModel(model string) *config.Account {
 			seen[acc.ID] = true
 			continue
 		}
-		if isOverUsageLimit(*acc) && !acc.AllowOverage && !allowOverUsage {
+		if isQuotaBlocked(*acc, allowOverUsage) {
 			seen[acc.ID] = true
 			continue
 		}
@@ -215,10 +234,13 @@ func (p *AccountPool) GetNextForModel(model string) *config.Account {
 	var earliest time.Time
 	for i := range p.accounts {
 		acc := &p.accounts[i]
+		if excluded != nil && excluded[acc.ID] {
+			continue
+		}
 		if !p.accountHasModel(acc.ID, model) {
 			continue
 		}
-		if isOverUsageLimit(*acc) && !acc.AllowOverage && !allowOverUsage {
+		if isQuotaBlocked(*acc, allowOverUsage) {
 			continue
 		}
 		if cooldown, ok := p.cooldowns[acc.ID]; ok {
@@ -267,6 +289,96 @@ func (p *AccountPool) RecordError(id string, isQuotaError bool) {
 		// 连续 3 次错误，冷却 1 分钟
 		p.cooldowns[id] = time.Now().Add(time.Minute)
 	}
+}
+
+// IsAuthFailure reports whether an error indicates the refresh token / credentials
+// have been revoked or invalidated upstream (401, 403 with auth markers, etc.).
+// These accounts cannot be recovered automatically and must be re-authenticated.
+func IsAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+
+	// Match HTTP status codes only when they appear as standalone tokens to avoid
+	// false positives from arbitrary digits in the error body (e.g. request IDs).
+	if hasStatusToken(msg, "401") || hasStatusToken(msg, "403") {
+		return true
+	}
+	if strings.Contains(lower, "bad credentials") ||
+		strings.Contains(lower, "invalid_grant") ||
+		strings.Contains(lower, "invalid grant") ||
+		strings.Contains(lower, "invalid_token") ||
+		strings.Contains(lower, "invalid token") ||
+		strings.Contains(lower, "token expired") ||
+		strings.Contains(lower, "token has expired") ||
+		strings.Contains(lower, "unauthorized") {
+		return true
+	}
+	return false
+}
+
+// hasStatusToken returns true when status appears in s with non-digit boundaries
+// on both sides, so "401" matches "HTTP 401 from ..." but not "request_401abc".
+func hasStatusToken(s, status string) bool {
+	for {
+		idx := strings.Index(s, status)
+		if idx < 0 {
+			return false
+		}
+		leftOK := idx == 0 || !isDigit(s[idx-1])
+		rightIdx := idx + len(status)
+		rightOK := rightIdx >= len(s) || !isDigit(s[rightIdx])
+		if leftOK && rightOK {
+			return true
+		}
+		s = s[idx+len(status):]
+	}
+}
+
+func isDigit(b byte) bool {
+	return b >= '0' && b <= '9'
+}
+
+// IsSuspensionError reports whether the error indicates the account has been
+// temporarily suspended by upstream or has no available Kiro profile.
+// Unlike auth failures (revoked credentials), these may be transient, but
+// the account should be disabled until an operator re-enables it.
+func IsSuspensionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "temporarily_suspended") ||
+		strings.Contains(lower, "temporarily suspended") ||
+		strings.Contains(lower, "no available kiro profile")
+}
+
+// DisableAccount marks an account as disabled (auth revoked / unrecoverable),
+// removes it from the in-memory pool so subsequent requests skip it, and
+// persists the change via config.SetAccountBanStatus.
+func (p *AccountPool) DisableAccount(id, reason string) {
+	if err := config.SetAccountBanStatus(id, "DISABLED", reason); err != nil {
+		// best effort — even if persistence fails, drop it from memory
+		_ = err
+	}
+	p.mu.Lock()
+	// Long cooldown as a safety net in case Reload races
+	p.cooldowns[id] = time.Now().Add(24 * time.Hour)
+	p.mu.Unlock()
+	p.Reload()
+}
+
+// MarkOverLimit marks an account as over usage limit (after a 402 / OVERAGE response).
+// With the upstream OverageStatus model, the live status is refreshed via
+// FetchOverageStatus from the request handler; here we just cooldown briefly so
+// the next attempt picks a different account, then reload.
+func (p *AccountPool) MarkOverLimit(id string) {
+	p.mu.Lock()
+	p.cooldowns[id] = time.Now().Add(time.Hour)
+	p.mu.Unlock()
+	p.Reload()
 }
 
 // UpdateToken 更新账号 Token
@@ -365,68 +477,25 @@ func (p *AccountPool) GetAllAccounts() []config.Account {
 }
 
 func isOverUsageLimit(acc config.Account) bool {
-	usage := parseUsageFromData(acc.UsageData)
-	return usage.Limit > 0 && usage.Current >= usage.Limit
+	return acc.UsageLimit > 0 && acc.UsageCurrent >= acc.UsageLimit
 }
 
-// usageInfo holds parsed usage information from UsageData
-type usageInfo struct {
-	Current float64
-	Limit   float64
+// isQuotaBlocked reports whether an over-quota account should be skipped:
+// the per-account upstream Overages switch (OverageStatus=ENABLED) and the
+// global allowOverUsage setting are the two ways to keep it routable.
+func isQuotaBlocked(acc config.Account, allowOverUsage bool) bool {
+	return isOverUsageLimit(acc) && !isUpstreamOverageEnabled(acc) && !allowOverUsage
 }
 
-// parseUsageFromData extracts usage information from the raw UsageData JSON
-func parseUsageFromData(usageData json.RawMessage) usageInfo {
-	if len(usageData) == 0 {
-		return usageInfo{}
-	}
-
-	var response struct {
-		UsageBreakdownList []struct {
-			ResourceType string  `json:"resourceType"`
-			CurrentUsage float64 `json:"currentUsage"`
-			UsageLimit   float64 `json:"usageLimit"`
-		} `json:"usageBreakdownList"`
-	}
-
-	if err := json.Unmarshal(usageData, &response); err != nil {
-		return usageInfo{}
-	}
-
-	// Find CREDIT or AGENTIC_REQUEST breakdown
-	for _, breakdown := range response.UsageBreakdownList {
-		if breakdown.ResourceType == "CREDIT" || breakdown.ResourceType == "AGENTIC_REQUEST" {
-			return usageInfo{
-				Current: breakdown.CurrentUsage,
-				Limit:   breakdown.UsageLimit,
-			}
-		}
-	}
-
-	// Fallback to first breakdown
-	if len(response.UsageBreakdownList) > 0 {
-		return usageInfo{
-			Current: response.UsageBreakdownList[0].CurrentUsage,
-			Limit:   response.UsageBreakdownList[0].UsageLimit,
-		}
-	}
-
-	return usageInfo{}
+// isUpstreamOverageEnabled reports whether the upstream Overages switch is ON for this account.
+// "ENABLED" → true; anything else (DISABLED, UNKNOWN, empty) → false.
+func isUpstreamOverageEnabled(acc config.Account) bool {
+	return strings.EqualFold(acc.OverageStatus, "ENABLED")
 }
 
 func effectiveWeight(weight int) int {
 	if weight < 1 {
 		return 1
-	}
-	return weight
-}
-
-func effectiveOverageWeight(weight int) int {
-	if weight < 1 {
-		return 1
-	}
-	if weight > overageFrequencyScale {
-		return overageFrequencyScale
 	}
 	return weight
 }

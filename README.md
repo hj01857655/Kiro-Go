@@ -58,6 +58,31 @@ go build -o kiro-go .
 ./kiro-go
 ```
 
+### Deploy on Zeabur
+
+The repo already includes a `Dockerfile`, so it builds and runs on Zeabur out of the box.
+
+**Option 1: Dashboard (one-click)**
+
+1. Fork this repo to your GitHub account.
+2. In Zeabur, create a new service and choose **Deploy from GitHub**, then select your fork.
+3. Zeabur auto-detects the `Dockerfile` and builds the image.
+4. In the **Networking** tab, expose port `8080` and bind a domain.
+5. In the **Variables** tab, set at least `ADMIN_PASSWORD` (admin panel password).
+6. Mount a Volume at `/app/data` if you want accounts / config to survive redeploys.
+
+**Option 2: CLI**
+
+```bash
+npm i -g zeabur
+zeabur auth login
+zeabur deploy
+```
+
+> Run the commands from the project root. The CLI writes `.zeabur/context.json` to remember the target project / service — it contains personal IDs, so don't commit it.
+
+Once the service is up, open `https://<your-domain>/admin` to log in.
+
 Config is auto-created at `data/config.json`. Mount `/app/data` for persistence. The default admin password is `changeme` — override it via the `ADMIN_PASSWORD` env var or change it in the admin panel before going to production.
 
 ## Usage

@@ -1,0 +1,142 @@
+name: Issue Template Validator
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: issue-validator-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate issue body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+            const title = issue.title || '';
+            const { owner, repo } = context.repo;
+            const issue_number = issue.number;
+            const marker = '<!-- issue-template-validator -->';
+
+            // Skip maintainers and collaborators.
+            const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            if (trusted.includes(issue.author_association)) {
+              core.info(`Skipping: author_association=${issue.author_association}`);
+              return;
+            }
+
+            // Detect template by title prefix.
+            const isBug = /^\s*\[Bug\]:/i.test(title);
+            const isFeature = /^\s*\[Feature\]:/i.test(title);
+            if (!isBug && !isFeature) {
+              core.info('Title prefix does not match a known template; skipping.');
+              return;
+            }
+
+            // Parse "### Heading\n\nbody" sections produced by Issue Forms.
+            const sections = {};
+            for (const part of body.split(/^###\s+/m).slice(1)) {
+              const nl = part.indexOf('\n');
+              if (nl === -1) continue;
+              sections[part.slice(0, nl).trim()] = part.slice(nl + 1).trim();
+            }
+            const findSection = (keys) => {
+              for (const [h, c] of Object.entries(sections)) {
+                if (keys.some(k => h.toLowerCase().includes(k.toLowerCase()))) {
+                  return { heading: h, content: c };
+                }
+              }
+              return null;
+            };
+            const isEmpty = (content) => {
+              if (!content) return true;
+              const stripped = content.replace(/```[\s\S]*?```/g, '').trim();
+              if (!stripped) return true;
+              if (/^_no response_$/i.test(stripped)) return true;
+              return stripped.length < 10;
+            };
+
+            const reasons = [];
+
+            // 1) Every checkbox in the body must be ticked.
+            const boxes = body.match(/^\s*[-*]\s*\[( |x|X)\]/gm) || [];
+            const unchecked = boxes.filter(b => /\[ \]/.test(b)).length;
+            if (boxes.length === 0) {
+              reasons.push('Pre-flight checklist is missing. / 缺少预检清单。');
+            } else if (unchecked > 0) {
+              reasons.push(`Pre-flight checklist contains ${unchecked} unchecked item(s). / 预检清单存在 ${unchecked} 项未勾选。`);
+            }
+
+            // 2) Required text fields must contain meaningful content.
+            const required = isBug
+              ? [
+                  { name: 'AI diagnosis summary / AI 排查记录', keys: ['ai diagnosis', 'AI 排查'] },
+                  { name: 'Version / 版本',                     keys: ['version', '版本'] },
+                  { name: 'Steps to reproduce / 复现步骤',      keys: ['steps to reproduce', '复现步骤'] },
+                  { name: 'Expected behavior / 预期行为',       keys: ['expected behavior', '预期行为'] },
+                  { name: 'Actual behavior / 实际行为',         keys: ['actual behavior', '实际行为'] },
+                  { name: 'Logs and error output / 日志与报错信息', keys: ['logs and error', '日志与报错'] },
+                ]
+              : [
+                  { name: 'Problem or use case / 待解决的问题与使用场景', keys: ['problem or use case', '待解决的问题'] },
+                  { name: 'Proposed solution / 建议的解决方案',           keys: ['proposed solution', '建议的解决方案'] },
+                ];
+
+            for (const r of required) {
+              const sec = findSection(r.keys);
+              if (!sec) {
+                reasons.push(`Missing section: ${r.name}. / 缺少字段：${r.name}。`);
+              } else if (isEmpty(sec.content)) {
+                reasons.push(`Section is empty or too short: ${r.name}. / 字段为空或内容过短：${r.name}。`);
+              }
+            }
+
+            // Look up our previous validator comment, if any.
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const priorComment = comments.find(c => (c.body || '').includes(marker));
+
+            if (reasons.length === 0) {
+              // Passes. Reopen if we previously auto-closed it.
+              await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'invalid' }).catch(() => {});
+              if (issue.state === 'closed' && priorComment) {
+                await github.rest.issues.update({ owner, repo, issue_number, state: 'open' });
+                const ok = [
+                  marker,
+                  'The issue now meets the template requirements and has been reopened automatically.',
+                  '',
+                  '该 issue 已满足模板要求，现已自动重新打开。',
+                ].join('\n');
+                await github.rest.issues.createComment({ owner, repo, issue_number, body: ok });
+              }
+              return;
+            }
+
+            // Fails. Comment, label, close.
+            const list = reasons.map(r => `- ${r}`).join('\n');
+            const commentBody = [
+              marker,
+              'This issue does not follow the required template and has been closed automatically. Please edit the issue to address every item below; it will be reopened once all requirements are met.',
+              '',
+              '此 issue 未按要求的模板填写，已被自动关闭。请编辑 issue 并补全以下内容，全部满足后将自动重新打开。',
+              '',
+              list,
+            ].join('\n');
+
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['invalid'] }).catch(() => {});
+            if (priorComment) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: priorComment.id, body: commentBody });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: commentBody });
+            }
+            if (issue.state !== 'closed') {
+              await github.rest.issues.update({ owner, repo, issue_number, state: 'closed', state_reason: 'not_planned' });
+            }

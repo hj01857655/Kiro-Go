@@ -58,6 +58,31 @@ go build -o kiro-go .
 ./kiro-go
 ```
 
+### 部署到 Zeabur
+
+仓库已包含 `Dockerfile`，可直接在 Zeabur 上构建运行。
+
+**方式一：面板一键部署**
+
+1. Fork 本仓库到你的 GitHub 账号。
+2. 在 Zeabur 新建服务，选择 **Deploy from GitHub**，绑定刚才 fork 的仓库。
+3. Zeabur 自动识别 `Dockerfile` 并完成构建。
+4. 在 **Networking** 标签暴露端口 `8080` 并绑定域名。
+5. 在 **Variables** 标签至少设置 `ADMIN_PASSWORD`（管理面板密码）。
+6. 如需持久化账号 / 配置，挂载 Volume 到 `/app/data`。
+
+**方式二：CLI 部署**
+
+```bash
+npm i -g zeabur
+zeabur auth login
+zeabur deploy
+```
+
+> 命令需在项目根目录执行。CLI 会生成 `.zeabur/context.json` 记录目标 project / service，包含个人 ID，请勿提交。
+
+部署完成后访问 `https://<你的域名>/admin` 登录管理面板。
+
 首次运行会在 `data/config.json` 自动生成配置，挂载 `/app/data` 以持久化。默认管理密码为 `changeme`，生产环境请务必通过 `ADMIN_PASSWORD` 环境变量或在管理面板中修改。
 
 ## 使用方法
