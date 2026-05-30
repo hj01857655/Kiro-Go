@@ -50,12 +50,21 @@ export default function SettingsPanel({ password }) {
       })
       if (settingsRes.ok) {
         const data = await settingsRes.json()
-        setSettings({
+        setSettings(prev => ({
+          ...prev,
           port: data.port || 8080,
           host: data.host || '127.0.0.1',
           password: data.password || '',
-          proxyURL: data.proxyURL || ''
-        })
+        }))
+      }
+
+      // 全局代理走独立路由 /admin/api/proxy
+      const proxyRes = await fetch('/admin/api/proxy', {
+        headers: { 'X-Admin-Password': password }
+      })
+      if (proxyRes.ok) {
+        const data = await proxyRes.json()
+        setSettings(prev => ({ ...prev, proxyURL: data.proxyURL || '' }))
       }
 
       // 加载 thinking 配置
@@ -100,15 +109,30 @@ export default function SettingsPanel({ password }) {
   const saveSettings = async () => {
     setSaving(true)
     try {
-      // 保存基础设置
+      // 保存基础设置（不含 proxyURL，proxyURL 走独立 /proxy 路由）
+      const { proxyURL, ...settingsBody } = settings
       await fetch('/admin/api/settings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Admin-Password': password
         },
-        body: JSON.stringify(settings)
+        body: JSON.stringify(settingsBody)
       })
+
+      // 保存全局代理（独立路由，后端会做 URL 格式校验）
+      const proxyRes = await fetch('/admin/api/proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Password': password
+        },
+        body: JSON.stringify({ proxyURL: proxyURL || '' })
+      })
+      if (!proxyRes.ok) {
+        const err = await proxyRes.json().catch(() => ({}))
+        throw new Error(err.error || 'proxy save failed')
+      }
 
       // 保存 thinking 配置
       await fetch('/admin/api/thinking', {
