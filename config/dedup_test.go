@@ -101,3 +101,28 @@ func TestAddAccountAlwaysAppendsEmptyUserId(t *testing.T) {
 		t.Fatalf("expected 2 accounts with empty UserId, got %d", got)
 	}
 }
+
+// TestAddAccountReturningGivesDedupedID verifies AddAccountReturning hands back
+// the actually-stored Account, so dedup callers can reflect the real ID to UI
+// instead of the just-constructed (non-existent) one.
+func TestAddAccountReturningGivesDedupedID(t *testing.T) {
+	if err := Init(filepath.Join(t.TempDir(), "config.json")); err != nil {
+		t.Fatalf("init config: %v", err)
+	}
+
+	if _, err := AddAccountReturning(Account{ID: "id-1", UserId: "u1", Email: "a@x", Enabled: true}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Re-import same UserId with a *different* input ID — should map back to id-1.
+	saved, err := AddAccountReturning(Account{ID: "id-2-NEW", UserId: "u1", Email: "a-renamed@x", Enabled: true})
+	if err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	if saved.ID != "id-1" {
+		t.Fatalf("expected returned ID id-1 (existing), got %q", saved.ID)
+	}
+	if saved.Email != "a-renamed@x" {
+		t.Fatalf("expected email refreshed, got %q", saved.Email)
+	}
+}

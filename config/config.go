@@ -479,7 +479,18 @@ func GetEnabledAccounts() []Account {
 // with the same server-assigned UserId already exists (dedupe). Re-importing
 // fresh credentials for a known user updates that account in place instead of
 // creating a duplicate, and revives a previously banned/disabled account.
+//
+// Note: 此函数为兼容性签名。需要拿到去重后真实账号(尤其 dedup 命中时 ID 会
+// 变成已存在那条的 ID)的调用方应使用 AddAccountReturning。
 func AddAccount(account Account) error {
+	_, err := AddAccountReturning(account)
+	return err
+}
+
+// AddAccountReturning is the same as AddAccount but returns the saved Account
+// (with the actual stored ID, which differs from the input when dedup hits).
+// 用于 handler 把"真实账号 ID"返回给前端，避免 dedup 时返回不存在的临时 ID。
+func AddAccountReturning(account Account) (Account, error) {
 	cfgLock.Lock()
 	defer cfgLock.Unlock()
 
@@ -521,13 +532,13 @@ func AddAccount(account Account) error {
 				existing.BanReason = ""
 				existing.BanTime = 0
 				cfg.Accounts[i] = existing
-				return Save()
+				return existing, Save()
 			}
 		}
 	}
 
 	cfg.Accounts = append(cfg.Accounts, account)
-	return Save()
+	return account, Save()
 }
 
 func UpdateAccount(id string, account Account) error {
