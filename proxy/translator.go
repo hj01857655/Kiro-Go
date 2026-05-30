@@ -11,27 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// 模型映射（有序，长 key 优先匹配，避免 "claude-sonnet-4" 误匹配 "claude-sonnet-4.5"）
+// modelAliases lists model names that need an explicit redirect — dated snapshots,
+// cross-family legacy IDs (claude-3-*), and non-Anthropic fallbacks.
+// Plain dash → dot version normalization is handled by claudeVersionPattern below,
+// so new versions (e.g. claude-opus-4-8) require no code changes.
 type modelMapping struct {
 	key   string
 	value string
 }
 
-var modelMapOrdered = []modelMapping{
+var modelAliases = []modelMapping{
 	{"claude-sonnet-4-20250514", "claude-sonnet-4"},
-	{"claude-sonnet-4-5", "claude-sonnet-4.5"},
-	{"claude-sonnet-4.5", "claude-sonnet-4.5"},
-	{"claude-sonnet-4-6", "claude-sonnet-4.6"},
-	{"claude-sonnet-4.6", "claude-sonnet-4.6"},
-	{"claude-opus-4-7", "claude-opus-4.7"},
-	{"claude-opus-4.7", "claude-opus-4.7"},
-	{"claude-haiku-4-5", "claude-haiku-4.5"},
-	{"claude-haiku-4.5", "claude-haiku-4.5"},
-	{"claude-opus-4-5", "claude-opus-4.5"},
-	{"claude-opus-4.5", "claude-opus-4.5"},
-	{"claude-opus-4-6", "claude-opus-4.6"},
-	{"claude-opus-4.6", "claude-opus-4.6"},
-	{"claude-sonnet-4", "claude-sonnet-4"},
 	{"claude-3-5-sonnet", "claude-sonnet-4.5"},
 	{"claude-3-opus", "claude-sonnet-4.5"},
 	{"claude-3-sonnet", "claude-sonnet-4"},
@@ -42,6 +32,11 @@ var modelMapOrdered = []modelMapping{
 	{"gpt-3.5-turbo", "claude-sonnet-4.5"},
 }
 
+// claudeVersionPattern normalizes "claude-{family}-N-M" to "claude-{family}-N.M".
+// Minor is capped at 1-2 digits with a \b boundary so dated snapshots
+// (claude-sonnet-4-20250514) are not accidentally rewritten.
+var claudeVersionPattern = regexp.MustCompile(`claude-(opus|sonnet|haiku)-(\d+)-(\d{1,2})\b`)
+
 // Thinking 模式提示
 const ThinkingModePrompt = `<thinking_mode>enabled</thinking_mode>
 <max_thinking_length>200000</max_thinking_length>`
@@ -49,12 +44,13 @@ const ThinkingModePrompt = `<thinking_mode>enabled</thinking_mode>
 const minimalFallbackUserContent = "."
 const toolResultsContinuationPrefix = "Tool results:"
 
-// ParseModelAndThinking 解析模型名称，返回实际模型和是否启用 thinking
+// ParseModelAndThinking resolves a client-supplied model name to a Kiro model ID
+// and reports whether thinking mode was requested via the configured suffix.
 func ParseModelAndThinking(model string, thinkingSuffix string) (string, bool) {
 	lower := strings.ToLower(model)
 	thinking := false
 
-	// 使用配置的后缀检查
+	// Strip the configured thinking suffix (e.g. "-thinking") if present.
 	suffixLower := strings.ToLower(thinkingSuffix)
 	if strings.HasSuffix(lower, suffixLower) {
 		thinking = true
@@ -62,14 +58,20 @@ func ParseModelAndThinking(model string, thinkingSuffix string) (string, bool) {
 		lower = strings.ToLower(model)
 	}
 
-	// 映射模型（有序匹配，长 key 优先）
-	for _, m := range modelMapOrdered {
+	// 1) Explicit aliases: dated snapshots, cross-family legacy IDs, non-Anthropic fallbacks.
+	for _, m := range modelAliases {
 		if strings.Contains(lower, m.key) {
 			return m.value, thinking
 		}
 	}
 
-	// 如果已经是有效的 Kiro 模型，直接返回
+	// 2) Format normalization: claude-{family}-N-M → claude-{family}-N.M.
+	//    New versions (claude-opus-4-8, etc.) flow through here without code changes.
+	if claudeVersionPattern.MatchString(lower) {
+		return claudeVersionPattern.ReplaceAllString(lower, "claude-$1-$2.$3"), thinking
+	}
+
+	// 3) Already a valid Kiro model (dot form or bare family like claude-sonnet-4): pass through.
 	if strings.HasPrefix(lower, "claude-") {
 		return model, thinking
 	}
@@ -229,19 +231,35 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 
 	history = trimLeadingAssistantHistory(history)
 
+	// Keep system instructions in history instead of user content.
+	if systemPrompt != "" {
+		priming := []KiroHistoryMessage{
+			{
+				UserInputMessage: &KiroUserInputMessage{
+					Content: systemPrompt,
+					ModelID: modelID,
+					Origin:  origin,
+				},
+			},
+			{
+				AssistantResponseMessage: &KiroAssistantResponseMessage{
+					Content: "I will follow these instructions.",
+				},
+			},
+		}
+		history = append(priming, history...)
+	}
+
 	// 构建最终内容
 	finalContent := ""
-	if systemPrompt != "" {
-		finalContent = "--- SYSTEM PROMPT ---\n" + systemPrompt + "\n--- END SYSTEM PROMPT ---\n\n"
-	}
 	if currentContent != "" {
-		finalContent += currentContent
+		finalContent = currentContent
 	} else if len(currentImages) > 0 {
-		finalContent += normalizeUserContent("", true)
+		finalContent = normalizeUserContent("", true)
 	} else if len(currentToolResults) > 0 {
-		finalContent += buildToolResultsContinuation(currentToolResults)
+		finalContent = buildToolResultsContinuation(currentToolResults)
 	} else {
-		finalContent += minimalFallbackUserContent
+		finalContent = minimalFallbackUserContent
 	}
 
 	// 转换工具
@@ -711,69 +729,91 @@ func convertClaudeTools(tools []ClaudeTool) ([]KiroToolWrapper, map[string]strin
 		}
 		w := KiroToolWrapper{}
 		w.ToolSpecification.Name = sanitized
-		w.ToolSpecification.Description = desc
+		w.ToolSpecification.Description = normalizeToolDesc(desc, sanitized)
 		w.ToolSpecification.InputSchema = InputSchema{JSON: ensureObjectSchema(tool.InputSchema)}
 		result = append(result, w)
 	}
 	return result, nameMap
 }
 
-// ensureObjectSchema ensures the JSON schema has "type": "object" at the top level
-// and removes invalid null values from "required" fields (recursively).
-// Kiro API rejects tool schemas with "required": null.
+// ensureObjectSchema 确保工具 schema 顶层是 object，并清理 Kiro 不接受的字段。
 func ensureObjectSchema(schema interface{}) interface{} {
 	m, ok := schema.(map[string]interface{})
 	if !ok {
 		return map[string]interface{}{"type": "object"}
 	}
-	cleanSchema(m)
-	if _, hasType := m["type"]; !hasType {
-		m["type"] = "object"
+	cleaned := cloneSchemaMap(m)
+	cleanSchema(cleaned)
+	if _, hasType := cleaned["type"]; !hasType {
+		cleaned["type"] = "object"
 	}
-	return m
+	return cleaned
 }
 
-// cleanSchema recursively removes or fixes invalid "required": null entries
-// in a JSON Schema tree.
+func cloneSchemaMap(m map[string]interface{}) map[string]interface{} {
+	cloned := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		cloned[k] = cloneSchemaValue(v)
+	}
+	return cloned
+}
+
+func cloneSchemaValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		return cloneSchemaMap(val)
+	case []interface{}:
+		cloned := make([]interface{}, 0, len(val))
+		for _, item := range val {
+			cloned = append(cloned, cloneSchemaValue(item))
+		}
+		return cloned
+	default:
+		return v
+	}
+}
+
+// cleanSchema 递归清理会导致 Kiro 400 的 schema 字段。
 func cleanSchema(m map[string]interface{}) {
-	// Fix "required" field: must be array or absent
+	delete(m, "additionalProperties")
+
+	// required 必须是非空数组，否则 Kiro 会报 Improperly formed request。
 	if req, exists := m["required"]; exists {
-		if req == nil {
+		switch arr := req.(type) {
+		case nil:
 			delete(m, "required")
-		} else if arr, ok := req.([]interface{}); ok && len(arr) == 0 {
-			delete(m, "required")
-		}
-	}
-
-	// Recurse into "properties"
-	if props, ok := m["properties"].(map[string]interface{}); ok {
-		for _, v := range props {
-			if sub, ok := v.(map[string]interface{}); ok {
-				cleanSchema(sub)
+		case []interface{}:
+			if len(arr) == 0 {
+				delete(m, "required")
 			}
+		case []string:
+			if len(arr) == 0 {
+				delete(m, "required")
+			}
+		default:
+			delete(m, "required")
 		}
 	}
 
-	// Recurse into "items"
-	if items, ok := m["items"].(map[string]interface{}); ok {
-		cleanSchema(items)
-	}
-
-	// Recurse into nested object schemas (e.g., additionalProperties, allOf, oneOf, anyOf)
-	for _, key := range []string{"additionalProperties"} {
-		if sub, ok := m[key].(map[string]interface{}); ok {
-			cleanSchema(sub)
-		}
-	}
-	for _, key := range []string{"allOf", "oneOf", "anyOf"} {
-		if arr, ok := m[key].([]interface{}); ok {
-			for _, item := range arr {
+	for _, v := range m {
+		switch val := v.(type) {
+		case map[string]interface{}:
+			cleanSchema(val)
+		case []interface{}:
+			for _, item := range val {
 				if sub, ok := item.(map[string]interface{}); ok {
 					cleanSchema(sub)
 				}
 			}
 		}
 	}
+}
+
+func normalizeToolDesc(desc, name string) string {
+	if strings.TrimSpace(desc) != "" {
+		return desc
+	}
+	return "Tool: " + name
 }
 
 // sanitizeToolName normalizes a tool name to characters the Kiro API accepts.
@@ -958,7 +998,6 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	var currentContent string
 	var currentImages []KiroImage
 	var currentToolResults []KiroToolResult
-	systemMerged := false
 
 	for i, msg := range nonSystemMessages {
 		isLast := i == len(nonSystemMessages)-1
@@ -967,12 +1006,6 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 		case "user":
 			content, images := extractOpenAIUserContent(msg.Content)
 			content = normalizeUserContent(content, len(images) > 0)
-
-			// 第一条 user 消息合并 system prompt
-			if !systemMerged && systemPrompt != "" {
-				content = systemPrompt + "\n" + content
-				systemMerged = true
-			}
 
 			if isLast {
 				currentContent = content
@@ -1040,6 +1073,25 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 		}
 	}
 
+	// Keep system instructions in history instead of user content.
+	if systemPrompt != "" {
+		priming := []KiroHistoryMessage{
+			{
+				UserInputMessage: &KiroUserInputMessage{
+					Content: strings.TrimSpace(systemPrompt),
+					ModelID: modelID,
+					Origin:  origin,
+				},
+			},
+			{
+				AssistantResponseMessage: &KiroAssistantResponseMessage{
+					Content: "I will follow these instructions.",
+				},
+			},
+		}
+		history = append(priming, history...)
+	}
+
 	// 构建最终内容
 	finalContent := currentContent
 	if finalContent == "" {
@@ -1050,9 +1102,6 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 		} else {
 			finalContent = minimalFallbackUserContent
 		}
-	}
-	if !systemMerged && systemPrompt != "" {
-		finalContent = systemPrompt + "\n" + finalContent
 	}
 
 	// 转换工具
@@ -1442,8 +1491,8 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		}
 		wrapper := KiroToolWrapper{}
 		wrapper.ToolSpecification.Name = shortenToolName(tool.Function.Name)
-		wrapper.ToolSpecification.Description = desc
-		wrapper.ToolSpecification.InputSchema = InputSchema{JSON: tool.Function.Parameters}
+		wrapper.ToolSpecification.Description = normalizeToolDesc(desc, wrapper.ToolSpecification.Name)
+		wrapper.ToolSpecification.InputSchema = InputSchema{JSON: ensureObjectSchema(tool.Function.Parameters)}
 		result = append(result, wrapper)
 	}
 	return result
@@ -1520,7 +1569,7 @@ func extractThinkingFromContent(content string) (string, string) {
 	return strings.TrimSpace(result), reasoning
 }
 
-// KiroToOpenAIResponseWithReasoning 带 reasoning_content 的 OpenAI 响应
+// 这是将Kiro转为,KiroToOpenAIResponseWithReasoning 带 reasoning_content 的 OpenAI 响应
 func KiroToOpenAIResponseWithReasoning(content, reasoningContent string, toolUses []KiroToolUse, inputTokens, outputTokens int, model, thinkingFormat string) map[string]interface{} {
 	finishReason := "stop"
 
