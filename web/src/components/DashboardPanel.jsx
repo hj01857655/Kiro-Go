@@ -89,7 +89,9 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
 
   const enabledAccounts = accounts.filter(a => a.enabled).length
   const disabledAccounts = accounts.length - enabledAccounts
-  const onlineAccounts = accounts.filter(a => a.status === 'online').length
+  // main 基底的 Account 没有通用 status 字段，用"启用且未被封禁/禁用"表示可用
+  const isAccountAvailable = (a) => a.enabled && a.banStatus !== 'BANNED' && a.banStatus !== 'DISABLED'
+  const onlineAccounts = accounts.filter(isAccountAvailable).length
   const enabledKeys = apiKeys.filter(k => k.enabled).length
 
   const successRate = stats.totalRequests > 0
@@ -133,7 +135,7 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
                   </Badge>
                 </div>
               </div>
-              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
+              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-md flex items-center justify-center shadow-lg">
                 <Users className="w-7 h-7 text-white" />
               </div>
             </div>
@@ -321,7 +323,7 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
               {stats.recentLogs.map((log, idx) => (
                 <div
                   key={idx}
-                  className={`p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                  className={`p-4 rounded-md border-2 transition-all hover:shadow-md ${
                     log.success
                       ? 'bg-gradient-to-br from-green-50/50 to-emerald-50/30 dark:from-green-950/20 dark:to-emerald-950/10 border-green-200 dark:border-green-800/50'
                       : 'bg-gradient-to-br from-red-50/50 to-rose-50/30 dark:from-red-950/20 dark:to-rose-950/10 border-red-200 dark:border-red-800/50'
