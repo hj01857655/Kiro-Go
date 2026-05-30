@@ -158,14 +158,20 @@ func ResolveProfileArn(account *config.Account) (string, error) {
 
 	// 没有响应体可透传 —— 拼出"两步分别失败原因"的诊断错误，
 	// 比单纯的 "no available Kiro profile" 信息量更大。
+	hasRefreshToken := account.RefreshToken != ""
 	switch {
 	case listErr != nil && refreshErr != nil:
 		return "", fmt.Errorf("no available Kiro profile (list: %v; refresh: %v)", listErr, refreshErr)
-	case listErr != nil:
+	case listErr != nil && !hasRefreshToken:
 		return "", fmt.Errorf("no available Kiro profile (list: %v; no refresh token)", listErr)
+	case listErr != nil:
+		// listErr 失败、有 refresh token、refreshErr 为 nil —— 唯一可能是 refresh 调用成功
+		// 但响应体里 profileArn 字段为空（典型场景：Builder ID 账号通过 Amazon OIDC
+		// 刷新时上游不返回 profileArn）。
+		return "", fmt.Errorf("no available Kiro profile (list: %v; refresh succeeded but returned no profileArn — likely a Builder ID account)", listErr)
 	case refreshErr != nil:
 		return "", fmt.Errorf("no available Kiro profile (list returned empty; refresh: %v)", refreshErr)
-	case account.RefreshToken == "":
+	case !hasRefreshToken:
 		return "", fmt.Errorf("no available Kiro profile (list returned empty; no refresh token)")
 	default:
 		return "", fmt.Errorf("no available Kiro profile (list and refresh both returned empty)")
