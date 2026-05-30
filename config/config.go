@@ -244,8 +244,9 @@ var (
 	cfgPath string
 
 	// Log file paths, derived from the config directory in Init.
-	auditLogPath   string
-	requestLogPath string
+	auditLogPath    string
+	requestLogPath  string
+	upstreamLogPath string
 )
 
 // Init initializes the configuration system with the specified file path.
@@ -256,6 +257,7 @@ func Init(path string) error {
 	dir := filepath.Dir(path)
 	auditLogPath = filepath.Join(dir, "audit.log")
 	requestLogPath = filepath.Join(dir, "request.log")
+	upstreamLogPath = filepath.Join(dir, "upstream.log")
 	return Load()
 }
 
@@ -1191,4 +1193,29 @@ func ClearRequestLogs() error {
 		return err
 	}
 	return nil
+}
+
+// ==================== Upstream Response Log ====================
+
+// AppendUpstreamLog 把上游响应原始 body 追加到 upstream.log。每条记录格式：
+//
+//	[2026-05-30T19:54:44Z] [Kiro IDE] HTTP 429
+//	{"message":"...","reason":null}
+//	---
+//
+// 失败时静默：不能因为日志写入失败影响主请求流程。
+// 调用方应该只在错误响应时调用，避免日志过大。
+func AppendUpstreamLog(endpoint string, statusCode int, body string) {
+	if upstreamLogPath == "" {
+		return
+	}
+	file, err := os.OpenFile(upstreamLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// 时间戳用 RFC3339，便于 grep/ls 检索
+	ts := time.Now().UTC().Format(time.RFC3339)
+	fmt.Fprintf(file, "[%s] [%s] HTTP %d\n%s\n---\n", ts, endpoint, statusCode, body)
 }

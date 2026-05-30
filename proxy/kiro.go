@@ -370,26 +370,31 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 		resp, err := GetClientForProxy(ResolveAccountProxyURL(account)).Do(req)
 		if err != nil {
 			lastErr = err
-			logger.Warnf("[KiroAPI] Endpoint %s failed: %v", ep.Name, err)
-			continue
-		}
-
-		if resp.StatusCode == 429 {
-			resp.Body.Close()
-			logger.Warnf("[KiroAPI] Endpoint %s quota exhausted (429), trying next...", ep.Name)
-			lastErr = fmt.Errorf("quota exhausted on %s", ep.Name)
+			logger.Warnf("[KiroAPI] Endpoint %s network error: %v", ep.Name, err)
 			continue
 		}
 
 		if resp.StatusCode != 200 {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
+			bodyText := formatUpstreamBody(errBody)
+
+			// 完整 body 始终写到 data/upstream.log 留档
+			config.AppendUpstreamLog(ep.Name, resp.StatusCode, bodyText)
+
+			// 控制台日志：短 body 直接显示；长 body 只显示摘要 + 提示去文件查看
+			const maxConsoleBodyLen = 200
+			if len(bodyText) <= maxConsoleBodyLen {
+				lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, bodyText)
+			} else {
+				lastErr = fmt.Errorf("HTTP %d from %s: %s... (full body in upstream.log)", resp.StatusCode, ep.Name, bodyText[:maxConsoleBodyLen])
+			}
+
 			// Authentication errors and payment errors are not retried across endpoints.
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
 				return lastErr
 			}
-			logger.Warnf("[KiroAPI] Endpoint %s error: %v", ep.Name, lastErr)
+			logger.Warnf("[KiroAPI] Endpoint %s -> %v", ep.Name, lastErr)
 			continue
 		}
 
@@ -826,4 +831,25 @@ func shouldLogProfileArnError(email string) bool {
 	}
 	profileArnLogCache.Store(email, now)
 	return true
+}
+
+// formatUpstreamBody 把上游响应 body 处理成日志友好的单行：
+//   - 是有效 JSON 时压缩成单行（去掉缩进/多余空白）便于一行一条日志
+//   - 不是 JSON 时去掉首尾空白原样输出
+//   - 空 body 返回 "<empty>" 提示
+//
+// 不做截断 / 不做敏感数据过滤——上游怎么返回我们就怎么显示，调用方决定是否暴露。
+func formatUpstreamBody(body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return "<empty>"
+	}
+	// 如果是 JSON，Compact 成单行
+	if (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid(trimmed) {
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, trimmed); err == nil {
+			return buf.String()
+		}
+	}
+	return string(trimmed)
 }
