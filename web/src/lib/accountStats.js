@@ -66,11 +66,11 @@ export const getUsed = (account) => {
 
 // 获取订阅类型
 export const getSubType = (account) =>
-  account.usageData?.subscriptionInfo?.type ?? account.subscriptionType ?? ''
+  account.usageData?.subscriptionInfo?.type ?? ''
 
 // 获取订阅计划名称
 export const getSubPlan = (account) =>
-  account.usageData?.subscriptionInfo?.subscriptionTitle ?? account.subscriptionPlan ?? ''
+  account.usageData?.subscriptionInfo?.subscriptionTitle ?? ''
 
 // 获取使用百分比
 export const getUsagePercent = (account) => {
