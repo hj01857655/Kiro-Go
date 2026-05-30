@@ -14,13 +14,7 @@ tmp_dir = "tmp"
 
   include_ext = ["go"]
 
-  include_dir = [
-    "auth",
-    "config",
-    "logger",
-    "pool",
-    "proxy"
-  ]
+  include_dir = []
 
   exclude_dir = [
     "assets",
@@ -29,7 +23,11 @@ tmp_dir = "tmp"
     "testdata",
     "web",
     "data",
-    ".git"
+    "node_modules",
+    ".git",
+    ".kiro",
+    ".codegraph",
+    ".github"
   ]
 
   exclude_file = []
