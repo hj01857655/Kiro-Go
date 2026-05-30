@@ -2205,6 +2205,31 @@ func (h *Handler) ensureValidToken(account *config.Account) error {
 // ==================== 管理 API ====================
 
 func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
+	// admin 专属 CORS：仅允许 localhost / 127.0.0.1 来源 + 凭据，覆盖 ServeHTTP
+	// 设置的全局 "*"。配合 cookie/X-Admin-Password 鉴权，防止任意第三方网站
+	// 借用户已登录态发起 admin 请求（CSRF 防护）。
+	if origin := r.Header.Get("Origin"); origin != "" {
+		if strings.HasPrefix(origin, "http://localhost:") ||
+			strings.HasPrefix(origin, "http://127.0.0.1:") ||
+			strings.HasPrefix(origin, "https://localhost:") ||
+			strings.HasPrefix(origin, "https://127.0.0.1:") {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Password")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
+		} else {
+			// 非白名单来源：撤销全局 Allow-Origin 以防泄漏 admin 响应给跨域
+			w.Header().Del("Access-Control-Allow-Origin")
+		}
+	}
+
+	// OPTIONS 预检在鉴权前直接返回，浏览器预检请求不会带 X-Admin-Password
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(204)
+		return
+	}
+
 	// 验证密码
 	password := r.Header.Get("X-Admin-Password")
 	if password == "" {
