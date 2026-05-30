@@ -2864,12 +2864,13 @@ func (h *Handler) apiCompleteIamSso(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取用户信息
-	email, _, _ := auth.GetUserInfo(accessToken)
+	email, userID, _ := auth.GetUserInfo(accessToken)
 
 	// 创建账号
 	account := config.Account{
 		ID:           auth.GenerateAccountID(),
 		Email:        email,
+		UserId:       userID,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ClientID:     clientID,
@@ -2956,12 +2957,13 @@ func (h *Handler) apiPollBuilderIdAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 授权完成，获取用户信息
-	email, _, _ := auth.GetUserInfo(accessToken)
+	email, userID, _ := auth.GetUserInfo(accessToken)
 
 	// 创建账号
 	account := config.Account{
 		ID:           auth.GenerateAccountID(),
 		Email:        email,
+		UserId:       userID,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ClientID:     clientID,
@@ -3028,12 +3030,13 @@ func (h *Handler) apiImportSsoToken(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 获取用户信息
-		email, _, _ := auth.GetUserInfo(accessToken)
+		email, userID, _ := auth.GetUserInfo(accessToken)
 
 		// 创建账号
 		account := config.Account{
 			ID:           auth.GenerateAccountID(),
 			Email:        email,
+			UserId:       userID,
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
 			ClientID:     clientID,
