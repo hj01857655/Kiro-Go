@@ -5,8 +5,11 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
 
-  entrypoint = ".\\tmp\\main.exe"
-  full_bin = ".\\tmp\\main.exe"
+  # Windows 上 air 通过当前 shell 启动二进制；某些 PowerShell 主机会把
+  # tmp\main.exe / .\tmp\main.exe 当成模块名解析报 CommandNotFoundException。
+  # 用 cmd /c 显式包装，cmd 永远把 tmp\main.exe 当成相对路径执行，最稳。
+  entrypoint = "cmd /c tmp\\main.exe"
+  full_bin = "cmd /c tmp\\main.exe"
 
   cmd = "go build -o ./tmp/main.exe ."
 
