@@ -28,6 +28,7 @@ import {
   getQuota,
   getUsed,
   getUsagePercent,
+  getSubType,
   getSubPlan,
   formatUsage,
   hasOverage,
@@ -135,7 +136,7 @@ export default function AccountsPanel({
       email: acc.email,
       nickname: acc.nickname,
       enabled: acc.enabled,
-      subscriptionType: acc.subscriptionType,
+      subscriptionType: getSubType(acc),
       authMethod: acc.authMethod,
       provider: acc.provider,
       requestCount: acc.requestCount,
@@ -151,7 +152,7 @@ export default function AccountsPanel({
       [t('accounts.fields.email')]: acc.email,
       [t('accounts.fields.nickname')]: acc.nickname || '',
       [t('accounts.fields.status')]: acc.enabled ? t('common.enabled') : t('common.disabled'),
-      [t('accounts.fields.subscription')]: acc.subscriptionType || 'Free',
+      [t('accounts.fields.subscription')]: getSubType(acc) || 'Free',
       [t('accounts.fields.authMethod')]: acc.authMethod === 'idc' ? 'IdC' : 'Social',
       [t('accounts.fields.provider')]: acc.provider || '',
       [t('accounts.fields.requests')]: acc.requestCount || 0,
@@ -525,7 +526,6 @@ export default function AccountsPanel({
                           >
                             {account.usageData?.subscriptionInfo?.subscriptionTitle ||
                              account.usageData?.subscriptionInfo?.type ||
-                             account.subscriptionType ||
                              'Free'}
                           </Badge>
                           {account.enabled ? (
