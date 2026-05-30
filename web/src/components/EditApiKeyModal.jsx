@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNotification } from './ui/notification'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -7,18 +8,19 @@ import { Switch } from './ui/switch'
 import { Key, Loader2, Save } from 'lucide-react'
 
 export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, onSuccess }) {
+  const notify = useNotification()
   const [name, setName] = useState('')
   const [enabled, setEnabled] = useState(true)
-  const [priority, setPriority] = useState(0)
-  const [weight, setWeight] = useState(1)
+  const [tokenLimit, setTokenLimit] = useState(0)
+  const [creditLimit, setCreditLimit] = useState(0)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (apiKey) {
       setName(apiKey.name || '')
       setEnabled(apiKey.enabled !== false)
-      setPriority(apiKey.priority || 0)
-      setWeight(apiKey.weight || 1)
+      setTokenLimit(apiKey.tokenLimit || 0)
+      setCreditLimit(apiKey.creditLimit || 0)
     }
   }, [apiKey])
 
@@ -30,7 +32,7 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
 
     setLoading(true)
     try {
-      const res = await fetch(`/admin/api/keys/${apiKey.id}`, {
+      const res = await fetch(`/admin/api/api-keys/${apiKey.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -39,8 +41,8 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
         body: JSON.stringify({
           name: name.trim(),
           enabled,
-          priority: parseInt(priority),
-          weight: parseInt(weight)
+          tokenLimit: parseInt(tokenLimit) || 0,
+          creditLimit: parseFloat(creditLimit) || 0
         })
       })
       const data = await res.json()
@@ -66,10 +68,10 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg glass border-0 shadow-2xl">
+      <DialogContent className="max-w-lg glass border-2 border-border shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-md bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center shadow-md">
               <Key className="w-5 h-5 text-white" />
             </div>
             编辑 API 密钥
@@ -95,7 +97,7 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
           </div>
 
           {/* 启用状态 */}
-          <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+          <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
             <div>
               <Label htmlFor="enabled" className="cursor-pointer">启用状态</Label>
               <p className="text-xs text-muted-foreground mt-1">禁用后此密钥将无法使用</p>
@@ -107,39 +109,42 @@ export default function EditApiKeyModal({ open, onOpenChange, apiKey, password, 
             />
           </div>
 
-          {/* 优先级 */}
+          {/* Token 限额 */}
           <div>
-            <Label htmlFor="priority">优先级</Label>
+            <Label htmlFor="tokenLimit">Token 限额</Label>
             <Input
-              id="priority"
+              id="tokenLimit"
               type="number"
+              min="0"
               placeholder="0"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
+              value={tokenLimit}
+              onChange={(e) => setTokenLimit(e.target.value)}
               className="mt-2 border-2 focus:border-blue-500 dark:focus:border-blue-400"
             />
-            <p className="text-xs text-muted-foreground mt-1">数值越大优先级越高</p>
+            <p className="text-xs text-muted-foreground mt-1">累计 token 上限，0 表示不限制</p>
           </div>
 
-          {/* 权重 */}
+          {/* Credit 限额 */}
           <div>
-            <Label htmlFor="weight">权重</Label>
+            <Label htmlFor="creditLimit">Credit 限额</Label>
             <Input
-              id="weight"
+              id="creditLimit"
               type="number"
-              placeholder="1"
-              value={weight}
-              onChange={(e) => setWeight(e.target.value)}
+              min="0"
+              step="0.01"
+              placeholder="0"
+              value={creditLimit}
+              onChange={(e) => setCreditLimit(e.target.value)}
               className="mt-2 border-2 focus:border-blue-500 dark:focus:border-blue-400"
             />
-            <p className="text-xs text-muted-foreground mt-1">用于负载均衡，数值越大分配的请求越多</p>
+            <p className="text-xs text-muted-foreground mt-1">累计 credit 上限，0 表示不限制</p>
           </div>
 
           {/* 密钥 ID（只读） */}
           <div>
             <Label>密钥 ID</Label>
-            <div className="mt-2 p-3 bg-muted/50 rounded-lg">
-              <code className="text-sm font-mono text-foreground">{apiKey.id}</code>
+            <div className="mt-2 p-3 bg-muted/50 rounded-md">
+              <code className="text-sm font-mono text-foreground break-all">{apiKey.id}</code>
             </div>
           </div>
 

@@ -175,7 +175,11 @@
       "never": "永不过期",
       "neverUsed": "从未",
       "lastUsed": "最后使用",
-      "usageCount": "使用次数"
+      "usageCount": "使用次数",
+      "tokens": "Tokens",
+      "credits": "Credits",
+      "requests": "请求",
+      "migrated": "已迁移"
     },
     "status": {
       "active": "运行中",
@@ -187,7 +191,8 @@
       "delete": "删除",
       "edit": "编辑",
       "test": "测试连接",
-      "refresh": "刷新"
+      "refresh": "刷新",
+      "resetUsage": "重置用量"
     }
   },
   "logs": {
@@ -382,7 +387,9 @@
     "testSuccess": "测试成功 - 响应时间: {{time}}ms",
     "testFailed": "测试失败",
     "testFailedWithError": "测试失败: {{error}}",
-    "unknownError": "未知错误"
+    "unknownError": "未知错误",
+    "resetUsageSuccess": "用量已重置",
+    "resetUsageFailed": "重置用量失败"
   },
   "confirm": {
     "deleteAccount": {

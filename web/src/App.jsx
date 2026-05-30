@@ -129,12 +129,12 @@ function AppContent() {
 
   const loadApiKeys = async (pwd) => {
     try {
-      const res = await fetch('/admin/api/keys', {
+      const res = await fetch('/admin/api/api-keys', {
         headers: { 'X-Admin-Password': pwd || password }
       })
       if (res.ok) {
         const data = await res.json()
-        setApiKeys(data || [])
+        setApiKeys(data.apiKeys || [])
       }
     } catch (e) {
       console.error('Failed to load API keys:', e)
@@ -394,7 +394,7 @@ function AppContent() {
       variant: 'destructive',
       onConfirm: async () => {
         try {
-          const res = await fetch(`/admin/api/keys/${id}`, {
+          const res = await fetch(`/admin/api/api-keys/${id}`, {
             method: 'DELETE',
             headers: { 'X-Admin-Password': password }
           })
@@ -420,7 +420,7 @@ function AppContent() {
     ))
 
     try {
-      const res = await fetch(`/admin/api/keys/${id}`, {
+      const res = await fetch(`/admin/api/api-keys/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -446,42 +446,21 @@ function AppContent() {
     }
   }
 
-  const refreshApiKey = async (id) => {
+  // 重置单个密钥的累计用量（tokens/credits/requests 清零）
+  const resetApiKeyUsage = async (id) => {
     try {
-      const res = await fetch(`/admin/api/keys/${id}/refresh`, {
+      const res = await fetch(`/admin/api/api-keys/${id}/reset-usage`, {
         method: 'POST',
         headers: { 'X-Admin-Password': password }
       })
       if (res.ok) {
-        const data = await res.json()
-        // 更新本地状态中的密钥
-        setApiKeys(prev => prev.map(key =>
-          key.id === id ? { ...key, key: data.key } : key
-        ))
-        notify.success(t('messages.refreshSuccess'))
+        await loadApiKeys()
+        notify.success(t('messages.resetUsageSuccess'))
       } else {
-        notify.error(t('messages.refreshFailed'))
+        notify.error(t('messages.resetUsageFailed'))
       }
     } catch (e) {
-      notify.error(t('messages.refreshFailed'))
-    }
-  }
-
-  const testApiKey = async (id) => {
-    notify.info(t('messages.testing'))
-    try {
-      const res = await fetch(`/admin/api/keys/${id}/test`, {
-        method: 'POST',
-        headers: { 'X-Admin-Password': password }
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        notify.success(t('messages.testSuccess', { time: data.responseTime }))
-      } else {
-        notify.error(t('messages.testFailedWithError', { error: data.error || t('messages.unknownError') }))
-      }
-    } catch (e) {
-      notify.error(t('messages.testFailed'))
+      notify.error(t('messages.resetUsageFailed'))
     }
   }
 
@@ -665,8 +644,7 @@ function AppContent() {
               onCreate={() => setCreateKeyOpen(true)}
               onDelete={deleteApiKey}
               onToggle={toggleApiKey}
-              onRefresh={refreshApiKey}
-              onTest={testApiKey}
+              onResetUsage={resetApiKeyUsage}
               onEdit={editApiKey}
             />
           </TabsContent>

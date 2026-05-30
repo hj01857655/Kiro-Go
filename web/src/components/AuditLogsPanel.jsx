@@ -12,6 +12,7 @@ import {
 
 export default function AuditLogsPanel({ password }) {
   const { t, i18n } = useTranslation()
+  const notify = useNotification()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [filterLevel, setFilterLevel] = useState('all')

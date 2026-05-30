@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNotification } from './ui/notification'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -6,7 +7,10 @@ import { Label } from './ui/label'
 import { Key, Loader2, Copy, CheckCircle2 } from 'lucide-react'
 
 export default function CreateApiKeyModal({ open, onOpenChange, password, onSuccess }) {
+  const notify = useNotification()
   const [name, setName] = useState('')
+  const [tokenLimit, setTokenLimit] = useState(0)
+  const [creditLimit, setCreditLimit] = useState(0)
   const [loading, setLoading] = useState(false)
   const [createdKey, setCreatedKey] = useState(null)
 
@@ -18,13 +22,17 @@ export default function CreateApiKeyModal({ open, onOpenChange, password, onSucc
 
     setLoading(true)
     try {
-      const res = await fetch('/admin/api/keys', {
+      const res = await fetch('/admin/api/api-keys', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Admin-Password': password
         },
-        body: JSON.stringify({ name: name.trim() })
+        body: JSON.stringify({
+          name: name.trim(),
+          tokenLimit: parseInt(tokenLimit) || 0,
+          creditLimit: parseFloat(creditLimit) || 0
+        })
       })
       const data = await res.json()
       if (data.key) {
@@ -51,16 +59,18 @@ export default function CreateApiKeyModal({ open, onOpenChange, password, onSucc
 
   const handleClose = () => {
     setName('')
+    setTokenLimit(0)
+    setCreditLimit(0)
     setCreatedKey(null)
     onOpenChange(false)
   }
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg glass border-0 shadow-2xl">
+      <DialogContent className="max-w-lg glass border-2 border-border shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-md bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-md">
               <Key className="w-5 h-5 text-white" />
             </div>
             创建 API 密钥
@@ -91,6 +101,36 @@ export default function CreateApiKeyModal({ open, onOpenChange, password, onSucc
               <p className="text-xs text-muted-foreground mt-2">
                 用于标识此密钥的用途，例如"开发环境"或"生产环境"
               </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="tokenLimit">Token 限额</Label>
+                <Input
+                  id="tokenLimit"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={tokenLimit}
+                  onChange={(e) => setTokenLimit(e.target.value)}
+                  className="mt-2 border-2 focus:border-purple-500 dark:focus:border-purple-400"
+                />
+                <p className="text-xs text-muted-foreground mt-1">0 = 不限制</p>
+              </div>
+              <div>
+                <Label htmlFor="creditLimit">Credit 限额</Label>
+                <Input
+                  id="creditLimit"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0"
+                  value={creditLimit}
+                  onChange={(e) => setCreditLimit(e.target.value)}
+                  className="mt-2 border-2 focus:border-purple-500 dark:focus:border-purple-400"
+                />
+                <p className="text-xs text-muted-foreground mt-1">0 = 不限制</p>
+              </div>
             </div>
 
             <div className="flex gap-3 justify-end pt-4">

@@ -175,7 +175,11 @@
       "never": "Never",
       "neverUsed": "Never",
       "lastUsed": "Last Used",
-      "usageCount": "Usage Count"
+      "usageCount": "Usage Count",
+      "tokens": "Tokens",
+      "credits": "Credits",
+      "requests": "Requests",
+      "migrated": "Migrated"
     },
     "status": {
       "active": "Active",
@@ -187,7 +191,8 @@
       "delete": "Delete",
       "edit": "Edit",
       "test": "Test Connection",
-      "refresh": "Refresh"
+      "refresh": "Refresh",
+      "resetUsage": "Reset Usage"
     }
   },
   "logs": {
@@ -382,7 +387,9 @@
     "testSuccess": "Test successful - Response time: {{time}}ms",
     "testFailed": "Test failed",
     "testFailedWithError": "Test failed: {{error}}",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "resetUsageSuccess": "Usage reset",
+    "resetUsageFailed": "Failed to reset usage"
   },
   "confirm": {
     "deleteAccount": {

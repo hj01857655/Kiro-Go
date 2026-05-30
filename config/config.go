@@ -1087,7 +1087,7 @@ func AddAuditLog(log AuditLog) error {
 		log.ID = GenerateMachineId()
 	}
 	if log.Timestamp == 0 {
-		log.Timestamp = time.Now().Unix()
+		log.Timestamp = time.Now().UnixMilli()
 	}
 
 	file, err := os.OpenFile(auditLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
