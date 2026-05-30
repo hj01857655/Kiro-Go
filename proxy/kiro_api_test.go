@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"kiro-go/config"
 	"net/http"
@@ -95,4 +96,34 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+// TestResolveProfileArnShortCircuitsBuilderID verifies that Builder ID accounts
+// short-circuit immediately without making any HTTP calls, since AWS does not
+// provide profile ARN for Builder ID credentials (verified by raw OIDC refresh
+// response inspection — no profileArn field is ever returned).
+func TestResolveProfileArnShortCircuitsBuilderID(t *testing.T) {
+	kiroRestHttpStore.Store(&http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			t.Fatalf("Builder ID account should not trigger any HTTP request, but saw %s %s", req.Method, req.URL)
+			return nil, nil
+		}),
+	})
+	t.Cleanup(func() { InitKiroHttpClient("") })
+
+	account := &config.Account{
+		ID:           "acct-builderid",
+		Email:        "user@example.com",
+		Provider:     "BuilderId",
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		// No ProfileArn cached
+	}
+	_, err := ResolveProfileArn(account)
+	if err == nil {
+		t.Fatal("expected error for Builder ID account, got nil")
+	}
+	if !errors.Is(err, ErrProfileArnUnsupported) {
+		t.Fatalf("expected ErrProfileArnUnsupported sentinel, got %v", err)
+	}
 }

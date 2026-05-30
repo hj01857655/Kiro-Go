@@ -122,14 +122,30 @@ func ListAvailableModels(account *config.Account) ([]ModelInfo, error) {
 }
 
 // ResolveProfileArn returns the account profile ARN, fetching and caching it
+// ErrProfileArnUnsupported indicates the account type does not support profile
+// ARN resolution (e.g. Builder ID accounts). Callers can use errors.Is to
+// distinguish this expected condition from real failures and skip noisy logs.
+var ErrProfileArnUnsupported = fmt.Errorf("profile ARN not available for this account type")
+
 // when it is missing. First tries ListAvailableProfiles; if that returns empty,
 // falls back to refreshing the token (which returns profileArn in the response).
+//
+// Builder ID 账号(provider="BuilderId")是个特例：AWS Builder ID 凭据
+// 既不被 /ListAvailableProfiles 接受（HTTP 403 "AWS Builder ID is not
+// supported for this operation"），也不会从 OIDC 刷新响应中收到 profileArn
+// 字段。两条路天生都拿不到，直接短路返回 ErrProfileArnUnsupported 让
+// 调用方静默处理（不浪费 HTTP 调用、不刷 warn 日志）。
 func ResolveProfileArn(account *config.Account) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("account is nil")
 	}
 	if profileArn := strings.TrimSpace(account.ProfileArn); profileArn != "" {
 		return profileArn, nil
+	}
+
+	// Builder ID 账号短路：天生拿不到 profileArn.
+	if account.Provider == "BuilderId" {
+		return "", ErrProfileArnUnsupported
 	}
 
 	// Step 1: ListAvailableProfiles, retrying on transient failures (network/5xx/429).

@@ -5,6 +5,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"kiro-go/config"
@@ -324,7 +325,9 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 	if payload != nil && strings.TrimSpace(payload.ProfileArn) == "" {
 		if profileArn, err := ResolveProfileArn(account); err == nil {
 			payload.ProfileArn = profileArn
-		} else {
+		} else if !errors.Is(err, ErrProfileArnUnsupported) {
+			// Builder ID 账号天生拿不到 profileArn，是预期行为不打日志。
+			// 其他失败(上游错误/网络/解析)才记录，且 5 分钟内同账号去重。
 			accountEmail := "<nil>"
 			if account != nil {
 				accountEmail = account.Email
