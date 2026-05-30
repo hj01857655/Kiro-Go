@@ -63,47 +63,23 @@ type Account struct {
 	// Priority weight for load balancing (higher = more requests)
 	Weight int `json:"weight,omitempty"` // 0 or 1 = normal, 2+ = higher priority
 
-	// Upstream Overages state (mirrored from AWS Q `setUserPreference` / `getUsageLimits`).
-	// OverageStatus is the only switch that decides whether to keep dispatching once UsageLimit is reached.
-	// Allowed values: "ENABLED", "DISABLED", "UNKNOWN" (or empty when not yet fetched).
-	OverageStatus     string  `json:"overageStatus,omitempty"`
-	OverageCapability string  `json:"overageCapability,omitempty"` // "OVERAGE_CAPABLE" / "NOT_OVERAGE_CAPABLE"
-	OverageCap        float64 `json:"overageCap,omitempty"`        // Hard upper bound (USD)
-	OverageRate       float64 `json:"overageRate,omitempty"`       // Per-invocation rate (USD)
-	CurrentOverages   float64 `json:"currentOverages,omitempty"`   // Cumulative overage charges (USD)
-	OverageCheckedAt  int64   `json:"overageCheckedAt,omitempty"`  // Last successful upstream sync (Unix seconds)
-
-	// LegacyAllowOverage is kept for backward-compatible JSON loading only.
-	// Pre-Overages-switch deployments persisted `allowOverage: true` to mean
-	// "keep dispatching when quota is exhausted". On first load we migrate it
-	// into OverageStatus="ENABLED" and zero this field so it does not get
-	// re-emitted on future saves. Do not read this field elsewhere.
-	LegacyAllowOverage bool `json:"allowOverage,omitempty"`
-
 	// Account status
 	Enabled   bool   `json:"enabled"`             // Whether account is active in the pool
 	BanStatus string `json:"banStatus,omitempty"` // Ban status: "ACTIVE", "BANNED", "SUSPENDED"
 	BanReason string `json:"banReason,omitempty"` // Reason for ban/suspension
 	BanTime   int64  `json:"banTime,omitempty"`   // Timestamp when ban was detected
 
-	// Subscription information
-	SubscriptionType  string `json:"subscriptionType,omitempty"`  // Tier: FREE, PRO, PRO_PLUS, or POWER
-	SubscriptionTitle string `json:"subscriptionTitle,omitempty"` // Human-readable subscription name
-	DaysRemaining     int    `json:"daysRemaining,omitempty"`     // Days until subscription expires
-
-	// Usage tracking
-	UsageCurrent  float64 `json:"usageCurrent,omitempty"`  // Current period usage (credits)
-	UsageLimit    float64 `json:"usageLimit,omitempty"`    // Maximum allowed usage per period
-	UsagePercent  float64 `json:"usagePercent,omitempty"`  // Usage percentage (0.0-1.0)
-	NextResetDate string  `json:"nextResetDate,omitempty"` // Date when usage resets (YYYY-MM-DD)
-	LastRefresh   int64   `json:"lastRefresh,omitempty"`   // Last info refresh timestamp
-
-	// Trial usage tracking
-	TrialUsageCurrent float64 `json:"trialUsageCurrent,omitempty"` // Trial quota current usage
-	TrialUsageLimit   float64 `json:"trialUsageLimit,omitempty"`   // Trial quota total limit
-	TrialUsagePercent float64 `json:"trialUsagePercent,omitempty"` // Trial quota usage percentage (0.0-1.0)
-	TrialStatus       string  `json:"trialStatus,omitempty"`       // Trial status: ACTIVE, EXPIRED, NONE
-	TrialExpiresAt    int64   `json:"trialExpiresAt,omitempty"`    // Trial expiration timestamp (Unix seconds)
+	// Usage & subscription data.
+	// The complete /getUsageLimits response is stored verbatim as raw JSON so no
+	// upstream field is ever lost (subscription, usage, trial, overage charges).
+	// Consumers parse what they need on demand:
+	//   - pool dispatch  → parseUsageFromData (usage limit + overageConfiguration)
+	//   - admin handlers → parseUsageData     (full breakdown for the UI)
+	// Both /getUsageLimits endpoints (codewhisperer + q.us-east-1) return the
+	// same schema: {nextDateReset, overageConfiguration, subscriptionInfo,
+	// usageBreakdownList, userInfo}.
+	UsageData   json.RawMessage `json:"usageData,omitempty"`   // Raw /getUsageLimits response
+	LastRefresh int64           `json:"lastRefresh,omitempty"` // Last info refresh timestamp (Unix seconds)
 
 	// Runtime statistics (updated during operation)
 	RequestCount int     `json:"requestCount,omitempty"` // Total requests processed
@@ -216,23 +192,14 @@ type Config struct {
 }
 
 // AccountInfo contains account metadata retrieved from Kiro API.
-// Used for updating subscription and usage information.
+// Used for updating an account after a /getUsageLimits refresh. The complete
+// upstream response is carried verbatim in UsageData; consumers parse fields on
+// demand (no flattening, so no upstream field is lost).
 type AccountInfo struct {
-	Email             string
-	UserId            string
-	SubscriptionType  string
-	SubscriptionTitle string
-	DaysRemaining     int
-	UsageCurrent      float64
-	UsageLimit        float64
-	UsagePercent      float64
-	NextResetDate     string
-	LastRefresh       int64
-	TrialUsageCurrent float64
-	TrialUsageLimit   float64
-	TrialUsagePercent float64
-	TrialStatus       string
-	TrialExpiresAt    int64
+	Email       string
+	UserId      string
+	LastRefresh int64
+	UsageData   json.RawMessage // Raw /getUsageLimits response (JSON)
 }
 
 // Version current version
@@ -309,28 +276,6 @@ func Load() error {
 		}
 	}
 
-	// Migration: per-account AllowOverage → OverageStatus.
-	// Pre-Overages-switch deployments stored `allowOverage: true` to mean "keep
-	// dispatching when quota is exhausted". The new model reads OverageStatus
-	// from the upstream AWS Q switch instead. To avoid silently disabling
-	// previously-allowed accounts on first launch, treat allowOverage=true as
-	// OverageStatus="ENABLED" (operators can refresh from AWS later). The
-	// legacy field is then cleared so future saves don't re-emit it.
-	overageMigrated := false
-	for i := range cfg.Accounts {
-		if cfg.Accounts[i].LegacyAllowOverage {
-			if cfg.Accounts[i].OverageStatus == "" {
-				cfg.Accounts[i].OverageStatus = "ENABLED"
-			}
-			cfg.Accounts[i].LegacyAllowOverage = false
-			overageMigrated = true
-		}
-	}
-	if overageMigrated {
-		if err := saveLocked(); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -555,25 +500,20 @@ func UpdateAccount(id string, account Account) error {
 	return nil
 }
 
-// UpdateAccountOverageStatus persists the cached upstream overage status fields.
-// Called after a successful setUserPreference or getUsageLimits round-trip.
-func UpdateAccountOverageStatus(id, status, capability string, cap, rate, current float64, checkedAt int64) error {
+// UpdateAccountUsageData persists the raw /getUsageLimits response for an account.
+// Called after a successful setUserPreference or getUsageLimits round-trip so the
+// overage switch state and charges stay in sync. Empty data is a no-op (so a
+// failed fetch never wipes previously-stored usage). Also bumps LastRefresh.
+func UpdateAccountUsageData(id string, usageData json.RawMessage) error {
+	if len(usageData) == 0 {
+		return nil
+	}
 	cfgLock.Lock()
 	defer cfgLock.Unlock()
 	for i, a := range cfg.Accounts {
 		if a.ID == id {
-			if status != "" {
-				cfg.Accounts[i].OverageStatus = status
-			}
-			if capability != "" {
-				cfg.Accounts[i].OverageCapability = capability
-			}
-			cfg.Accounts[i].OverageCap = cap
-			cfg.Accounts[i].OverageRate = rate
-			cfg.Accounts[i].CurrentOverages = current
-			if checkedAt > 0 {
-				cfg.Accounts[i].OverageCheckedAt = checkedAt
-			}
+			cfg.Accounts[i].UsageData = usageData
+			cfg.Accounts[i].LastRefresh = time.Now().Unix()
 			return Save()
 		}
 	}
@@ -744,7 +684,9 @@ func UpdateAccountStats(id string, requestCount, errorCount, totalTokens int, to
 }
 
 // UpdateAccountInfo updates an account's subscription and usage information.
-// Called after refreshing account data from Kiro API.
+// Called after refreshing account data from Kiro API. The complete upstream
+// response is stored verbatim in UsageData (no flattening); identity fields are
+// only overwritten when non-empty so a partial refresh never clobbers them.
 func UpdateAccountInfo(id string, info AccountInfo) error {
 	cfgLock.Lock()
 	defer cfgLock.Unlock()
@@ -756,19 +698,12 @@ func UpdateAccountInfo(id string, info AccountInfo) error {
 			if info.UserId != "" {
 				cfg.Accounts[i].UserId = info.UserId
 			}
-			cfg.Accounts[i].SubscriptionType = info.SubscriptionType
-			cfg.Accounts[i].SubscriptionTitle = info.SubscriptionTitle
-			cfg.Accounts[i].DaysRemaining = info.DaysRemaining
-			cfg.Accounts[i].UsageCurrent = info.UsageCurrent
-			cfg.Accounts[i].UsageLimit = info.UsageLimit
-			cfg.Accounts[i].UsagePercent = info.UsagePercent
-			cfg.Accounts[i].NextResetDate = info.NextResetDate
-			cfg.Accounts[i].LastRefresh = info.LastRefresh
-			cfg.Accounts[i].TrialUsageCurrent = info.TrialUsageCurrent
-			cfg.Accounts[i].TrialUsageLimit = info.TrialUsageLimit
-			cfg.Accounts[i].TrialUsagePercent = info.TrialUsagePercent
-			cfg.Accounts[i].TrialStatus = info.TrialStatus
-			cfg.Accounts[i].TrialExpiresAt = info.TrialExpiresAt
+			if len(info.UsageData) > 0 {
+				cfg.Accounts[i].UsageData = info.UsageData
+			}
+			if info.LastRefresh > 0 {
+				cfg.Accounts[i].LastRefresh = info.LastRefresh
+			}
 			return Save()
 		}
 	}

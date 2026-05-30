@@ -17,34 +17,39 @@ const (
 	kiroRestAPIBase = "https://codewhisperer.us-east-1.amazonaws.com"
 )
 
-// GetUsageLimits 获取账户使用量和订阅信息
-func GetUsageLimits(account *config.Account) (*UsageLimitsResponse, error) {
+// GetUsageLimits 获取账户使用量和订阅信息。
+// 同时返回解析后的结构体与原始响应字节：原始字节整体存入 Account.UsageData，
+// 保证 overageCharges / *WithPrecision / currency 等上游字段零丢失。
+func GetUsageLimits(account *config.Account) (*UsageLimitsResponse, json.RawMessage, error) {
 	url := fmt.Sprintf("%s/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true", kiroRestAPIBase)
 	url = withProfileArnQuery(url, account)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	setKiroHeaders(req, account)
 
 	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result UsageLimitsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, nil, err
 	}
-	return &result, nil
+	return &result, json.RawMessage(body), nil
 }
 
 // GetUserInfo 获取用户信息
@@ -210,7 +215,7 @@ func RefreshAccountInfo(account *config.Account) (*config.AccountInfo, error) {
 	}
 
 	// 获取使用量和订阅信息
-	usage, err := GetUsageLimits(account)
+	usage, rawBody, err := GetUsageLimits(account)
 	if err != nil {
 		// 检测封禁状态
 		errMsg := err.Error()
@@ -267,74 +272,23 @@ func RefreshAccountInfo(account *config.Account) (*config.AccountInfo, error) {
 		}
 	}
 
-	// 解析用户信息
+	// 解析用户信息（身份字段单独提取，用于 dedup 与展示）
 	if usage.UserInfo != nil {
 		info.Email = usage.UserInfo.Email
 		info.UserId = usage.UserInfo.UserId
 	}
 
-	// 解析订阅信息
+	// 订阅信息仅用于日志诊断；所有用量/订阅/超额字段不再摊平，
+	// 而是把完整响应原样存入 UsageData，由 pool / handler 按需解析，零字段丢失。
 	if usage.SubscriptionInfo != nil {
-		// 优先从 SubscriptionTitle 或 SubscriptionName 解析类型
-		titleOrName := usage.SubscriptionInfo.SubscriptionTitle
-		if titleOrName == "" {
-			titleOrName = usage.SubscriptionInfo.SubscriptionName
-		}
-		if titleOrName == "" {
-			titleOrName = usage.SubscriptionInfo.SubscriptionType
-		}
-		info.SubscriptionType = parseSubscriptionType(titleOrName)
-		info.SubscriptionTitle = usage.SubscriptionInfo.SubscriptionTitle
-		if info.SubscriptionTitle == "" {
-			info.SubscriptionTitle = usage.SubscriptionInfo.SubscriptionName
-		}
-		logger.Debugf("[RefreshAccountInfo] Subscription: type=%s, title=%s, name=%s, parsed=%s",
+		logger.Debugf("[RefreshAccountInfo] Subscription: type=%s, title=%s, name=%s",
 			usage.SubscriptionInfo.SubscriptionType,
 			usage.SubscriptionInfo.SubscriptionTitle,
-			usage.SubscriptionInfo.SubscriptionName,
-			info.SubscriptionType)
+			usage.SubscriptionInfo.SubscriptionName)
 	}
 
-	// 解析使用量
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
-		info.UsageCurrent = breakdown.CurrentUsage
-		info.UsageLimit = breakdown.UsageLimit
-		if info.UsageLimit > 0 {
-			info.UsagePercent = info.UsageCurrent / info.UsageLimit
-		}
-	}
-
-	// 解析重置日期
-	if usage.NextDateReset != "" {
-		if ts, err := usage.NextDateReset.Int64(); err == nil && ts > 0 {
-			info.NextResetDate = time.Unix(ts, 0).Format("2006-01-02")
-		} else if f, err := usage.NextDateReset.Float64(); err == nil && f > 0 {
-			info.NextResetDate = time.Unix(int64(f), 0).Format("2006-01-02")
-		}
-	}
-
-	// 解析试用配额信息
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
-		if breakdown.FreeTrialInfo != nil {
-			info.TrialUsageCurrent = breakdown.FreeTrialInfo.CurrentUsage
-			info.TrialUsageLimit = breakdown.FreeTrialInfo.UsageLimit
-			if info.TrialUsageLimit > 0 {
-				info.TrialUsagePercent = info.TrialUsageCurrent / info.TrialUsageLimit
-			}
-			info.TrialStatus = breakdown.FreeTrialInfo.FreeTrialStatus
-
-			// 解析试用到期时间
-			if breakdown.FreeTrialInfo.FreeTrialExpiry != "" {
-				if ts, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Int64(); err == nil && ts > 0 {
-					info.TrialExpiresAt = ts
-				} else if f, err := breakdown.FreeTrialInfo.FreeTrialExpiry.Float64(); err == nil && f > 0 {
-					info.TrialExpiresAt = int64(f)
-				}
-			}
-		}
-	}
+	// 存储原始响应（含 overageConfiguration / overageCharges / *WithPrecision 等全部字段）
+	info.UsageData = rawBody
 
 	return info, nil
 }
@@ -355,21 +309,37 @@ func parseSubscriptionType(raw string) string {
 
 // 响应结构体
 type UsageLimitsResponse struct {
-	UsageBreakdownList []UsageBreakdown  `json:"usageBreakdownList"`
-	NextDateReset      json.Number       `json:"nextDateReset"`
-	SubscriptionInfo   *SubscriptionInfo `json:"subscriptionInfo"`
-	UserInfo           *UserInfo         `json:"userInfo"`
+	UsageBreakdownList   []UsageBreakdown      `json:"usageBreakdownList"`
+	NextDateReset        json.Number           `json:"nextDateReset"`
+	SubscriptionInfo     *SubscriptionInfo     `json:"subscriptionInfo"`
+	UserInfo             *UserInfo             `json:"userInfo"`
+	OverageConfiguration *OverageConfiguration `json:"overageConfiguration"`
+}
+
+// OverageConfiguration is the user-level Overages switch state.
+type OverageConfiguration struct {
+	OverageStatus string `json:"overageStatus"` // "ENABLED" | "DISABLED"
 }
 
 type UsageBreakdown struct {
-	ResourceType  string         `json:"resourceType"`
-	CurrentUsage  float64        `json:"currentUsage"`
-	UsageLimit    float64        `json:"usageLimit"`
-	Currency      string         `json:"currency"`
-	Unit          string         `json:"unit"`
-	OverageRate   float64        `json:"overageRate"`
-	FreeTrialInfo *FreeTrialInfo `json:"freeTrialInfo"`
-	Bonuses       []BonusInfo    `json:"bonuses"`
+	ResourceType                 string         `json:"resourceType"` // real response: "CREDIT" (AGENTIC_REQUEST is only a request param)
+	CurrentUsage                 float64        `json:"currentUsage"`
+	CurrentUsageWithPrecision    float64        `json:"currentUsageWithPrecision"`
+	UsageLimit                   float64        `json:"usageLimit"`
+	UsageLimitWithPrecision      float64        `json:"usageLimitWithPrecision"`
+	CurrentOverages              float64        `json:"currentOverages"`
+	CurrentOveragesWithPrecision float64        `json:"currentOveragesWithPrecision"`
+	OverageCap                   float64        `json:"overageCap"`
+	OverageCapWithPrecision      float64        `json:"overageCapWithPrecision"`
+	OverageCharges               float64        `json:"overageCharges"` // accrued USD = currentOverages × overageRate
+	Currency                     string         `json:"currency"`
+	Unit                         string         `json:"unit"`
+	OverageRate                  float64        `json:"overageRate"`
+	DisplayName                  string         `json:"displayName"`
+	DisplayNamePlural            string         `json:"displayNamePlural"`
+	NextDateReset                json.Number    `json:"nextDateReset"`
+	FreeTrialInfo                *FreeTrialInfo `json:"freeTrialInfo"`
+	Bonuses                      []BonusInfo    `json:"bonuses"`
 }
 
 type FreeTrialInfo struct {
@@ -389,11 +359,14 @@ type BonusInfo struct {
 }
 
 type SubscriptionInfo struct {
-	SubscriptionName  string `json:"subscriptionName"`
-	SubscriptionTitle string `json:"subscriptionTitle"`
-	SubscriptionType  string `json:"subscriptionType"`
-	Status            string `json:"status"`
-	UpgradeCapability string `json:"upgradeCapability"`
+	SubscriptionName             string `json:"subscriptionName"`
+	SubscriptionTitle            string `json:"subscriptionTitle"`
+	SubscriptionType             string `json:"subscriptionType"`
+	Type                         string `json:"type"` // e.g. "Q_DEVELOPER_STANDALONE_PRO"
+	Status                       string `json:"status"`
+	UpgradeCapability            string `json:"upgradeCapability"`
+	OverageCapability            string `json:"overageCapability"` // "OVERAGE_CAPABLE" or empty
+	SubscriptionManagementTarget string `json:"subscriptionManagementTarget"`
 }
 
 type UserInfo struct {

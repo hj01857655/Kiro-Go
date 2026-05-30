@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -55,75 +54,39 @@ func TestUpdateSettingsPatchCanExplicitlyDisableAPIKey(t *testing.T) {
 	}
 }
 
-// TestAccountAllowOverageMigration verifies that a config.json from before the
-// upstream-Overages-switch refactor (which carried `allowOverage: true` per
-// account) is migrated into OverageStatus="ENABLED" on first load, and that
-// the legacy field is cleared so future saves don't re-emit it.
-func TestAccountAllowOverageMigration(t *testing.T) {
-	dir := t.TempDir()
-	cfgFile := filepath.Join(dir, "config.json")
-
-	seed := map[string]interface{}{
-		"password":      "p",
-		"port":          8080,
-		"host":          "0.0.0.0",
-		"requireApiKey": false,
-		"accounts": []map[string]interface{}{
-			{"id": "acc-allow", "enabled": true, "allowOverage": true},
-			{"id": "acc-deny", "enabled": true, "allowOverage": false},
-			{"id": "acc-already-set", "enabled": true, "allowOverage": true, "overageStatus": "DISABLED"},
-		},
-	}
-	raw, err := json.MarshalIndent(seed, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal seed: %v", err)
-	}
-	if err := os.WriteFile(cfgFile, raw, 0600); err != nil {
-		t.Fatalf("write seed: %v", err)
-	}
-
+// TestAccountUsageDataRoundTrip verifies that a raw /getUsageLimits response
+// persisted via UpdateAccountUsageData survives a save/load cycle intact, and
+// that an empty payload is a no-op (never wipes previously-stored usage).
+func TestAccountUsageDataRoundTrip(t *testing.T) {
+	cfgFile := filepath.Join(t.TempDir(), "config.json")
 	if err := Init(cfgFile); err != nil {
 		t.Fatalf("init: %v", err)
 	}
+	if err := AddAccount(Account{ID: "acc", Enabled: true}); err != nil {
+		t.Fatalf("add account: %v", err)
+	}
+
+	raw := json.RawMessage(`{"overageConfiguration":{"overageStatus":"ENABLED"},"usageBreakdownList":[{"resourceType":"CREDIT","currentUsage":1060.54,"usageLimit":1000,"overageCharges":2.42}]}`)
+	if err := UpdateAccountUsageData("acc", raw); err != nil {
+		t.Fatalf("update usage data: %v", err)
+	}
 
 	accounts := GetAccounts()
-	byID := map[string]Account{}
-	for _, a := range accounts {
-		byID[a.ID] = a
+	if len(accounts) != 1 {
+		t.Fatalf("expected one account, got %d", len(accounts))
+	}
+	if string(accounts[0].UsageData) != string(raw) {
+		t.Fatalf("expected usage data round-trip, got %q", string(accounts[0].UsageData))
+	}
+	if accounts[0].LastRefresh == 0 {
+		t.Fatalf("expected LastRefresh to be set after usage update")
 	}
 
-	if got := byID["acc-allow"].OverageStatus; got != "ENABLED" {
-		t.Fatalf("expected acc-allow to migrate to OverageStatus=ENABLED, got %q", got)
+	// Empty payload must not wipe the stored usage.
+	if err := UpdateAccountUsageData("acc", nil); err != nil {
+		t.Fatalf("update with empty usage data: %v", err)
 	}
-	if byID["acc-allow"].LegacyAllowOverage {
-		t.Fatalf("expected legacy allowOverage to be cleared after migration")
-	}
-	if got := byID["acc-deny"].OverageStatus; got != "" {
-		t.Fatalf("expected acc-deny to keep empty OverageStatus, got %q", got)
-	}
-	// Pre-set OverageStatus must win over the legacy field.
-	if got := byID["acc-already-set"].OverageStatus; got != "DISABLED" {
-		t.Fatalf("expected acc-already-set OverageStatus to be preserved, got %q", got)
-	}
-	if byID["acc-already-set"].LegacyAllowOverage {
-		t.Fatalf("expected legacy field to still be cleared on acc-already-set")
-	}
-
-	// Re-read the file and confirm legacy field is gone (so it doesn't drift
-	// back in on later saves).
-	on_disk, err := os.ReadFile(cfgFile)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	var reloaded struct {
-		Accounts []map[string]interface{} `json:"accounts"`
-	}
-	if err := json.Unmarshal(on_disk, &reloaded); err != nil {
-		t.Fatalf("decode reload: %v", err)
-	}
-	for _, a := range reloaded.Accounts {
-		if _, ok := a["allowOverage"]; ok {
-			t.Fatalf("expected allowOverage to be omitted from persisted file, got %+v", a)
-		}
+	if string(GetAccounts()[0].UsageData) != string(raw) {
+		t.Fatalf("empty payload must not clear stored usage data")
 	}
 }

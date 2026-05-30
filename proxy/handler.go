@@ -297,7 +297,7 @@ func (h *Handler) refreshAllAccounts() {
 		}
 
 		config.UpdateAccountInfo(account.ID, *info)
-		logger.Infof("[BackgroundRefresh] Refreshed %s: %s %.1f/%.1f", account.Email, info.SubscriptionType, info.UsageCurrent, info.UsageLimit)
+		logger.Infof("[BackgroundRefresh] Refreshed %s", account.Email)
 	}
 	h.pool.Reload()
 }
@@ -2378,46 +2378,31 @@ func (h *Handler) apiGetAccounts(w http.ResponseWriter, r *http.Request) {
 		stats := statsMap[a.ID]
 
 		result[i] = map[string]interface{}{
-			"id":                a.ID,
-			"email":             a.Email,
-			"userId":            a.UserId,
-			"nickname":          a.Nickname,
-			"authMethod":        a.AuthMethod,
-			"provider":          a.Provider,
-			"region":            a.Region,
-			"enabled":           a.Enabled,
-			"banStatus":         a.BanStatus,
-			"banReason":         a.BanReason,
-			"banTime":           a.BanTime,
-			"expiresAt":         a.ExpiresAt,
-			"hasToken":          a.AccessToken != "",
-			"machineId":         a.MachineId,
-			"weight":            a.Weight,
-			"overageStatus":     a.OverageStatus,
-			"overageCapability": a.OverageCapability,
-			"overageCap":        a.OverageCap,
-			"overageRate":       a.OverageRate,
-			"currentOverages":   a.CurrentOverages,
-			"overageCheckedAt":  a.OverageCheckedAt,
-			"proxyURL":          a.ProxyURL,
-			"subscriptionType":  a.SubscriptionType,
-			"subscriptionTitle": a.SubscriptionTitle,
-			"daysRemaining":     a.DaysRemaining,
-			"usageCurrent":      a.UsageCurrent,
-			"usageLimit":        a.UsageLimit,
-			"usagePercent":      a.UsagePercent,
-			"nextResetDate":     a.NextResetDate,
-			"lastRefresh":       a.LastRefresh,
-			"trialUsageCurrent": a.TrialUsageCurrent,
-			"trialUsageLimit":   a.TrialUsageLimit,
-			"trialUsagePercent": a.TrialUsagePercent,
-			"trialStatus":       a.TrialStatus,
-			"trialExpiresAt":    a.TrialExpiresAt,
-			"requestCount":      stats.RequestCount,
-			"errorCount":        stats.ErrorCount,
-			"totalTokens":       stats.TotalTokens,
-			"totalCredits":      stats.TotalCredits,
-			"lastUsed":          stats.LastUsed,
+			"id":          a.ID,
+			"email":       a.Email,
+			"userId":      a.UserId,
+			"nickname":    a.Nickname,
+			"authMethod":  a.AuthMethod,
+			"provider":    a.Provider,
+			"region":      a.Region,
+			"enabled":     a.Enabled,
+			"banStatus":   a.BanStatus,
+			"banReason":   a.BanReason,
+			"banTime":     a.BanTime,
+			"expiresAt":   a.ExpiresAt,
+			"hasToken":    a.AccessToken != "",
+			"machineId":   a.MachineId,
+			"weight":      a.Weight,
+			"proxyURL":    a.ProxyURL,
+			"lastRefresh": a.LastRefresh,
+			// Complete /getUsageLimits response (subscription / usage / trial /
+			// overage charges). The UI parses nested fields on demand.
+			"usageData":    rawUsageOrNull(a.UsageData),
+			"requestCount": stats.RequestCount,
+			"errorCount":   stats.ErrorCount,
+			"totalTokens":  stats.TotalTokens,
+			"totalCredits": stats.TotalCredits,
+			"lastUsed":     stats.LastUsed,
 		}
 	}
 	json.NewEncoder(w).Encode(result)
@@ -3564,49 +3549,34 @@ func (h *Handler) apiGetAccountFull(w http.ResponseWriter, r *http.Request, id s
 
 	// 返回完整账号信息（包含敏感字段）
 	result := map[string]interface{}{
-		"id":                account.ID,
-		"email":             account.Email,
-		"userId":            account.UserId,
-		"nickname":          account.Nickname,
-		"accessToken":       account.AccessToken,
-		"refreshToken":      account.RefreshToken,
-		"clientId":          account.ClientID,
-		"clientSecret":      account.ClientSecret,
-		"authMethod":        account.AuthMethod,
-		"provider":          account.Provider,
-		"region":            account.Region,
-		"expiresAt":         account.ExpiresAt,
-		"machineId":         account.MachineId,
-		"weight":            account.Weight,
-		"overageStatus":     account.OverageStatus,
-		"overageCapability": account.OverageCapability,
-		"overageCap":        account.OverageCap,
-		"overageRate":       account.OverageRate,
-		"currentOverages":   account.CurrentOverages,
-		"overageCheckedAt":  account.OverageCheckedAt,
-		"proxyURL":          account.ProxyURL,
-		"enabled":           account.Enabled,
-		"banStatus":         account.BanStatus,
-		"banReason":         account.BanReason,
-		"banTime":           account.BanTime,
-		"subscriptionType":  account.SubscriptionType,
-		"subscriptionTitle": account.SubscriptionTitle,
-		"daysRemaining":     account.DaysRemaining,
-		"usageCurrent":      account.UsageCurrent,
-		"usageLimit":        account.UsageLimit,
-		"usagePercent":      account.UsagePercent,
-		"nextResetDate":     account.NextResetDate,
-		"lastRefresh":       account.LastRefresh,
-		"trialUsageCurrent": account.TrialUsageCurrent,
-		"trialUsageLimit":   account.TrialUsageLimit,
-		"trialUsagePercent": account.TrialUsagePercent,
-		"trialStatus":       account.TrialStatus,
-		"trialExpiresAt":    account.TrialExpiresAt,
-		"requestCount":      stats.RequestCount,
-		"errorCount":        stats.ErrorCount,
-		"totalTokens":       stats.TotalTokens,
-		"totalCredits":      stats.TotalCredits,
-		"lastUsed":          stats.LastUsed,
+		"id":           account.ID,
+		"email":        account.Email,
+		"userId":       account.UserId,
+		"nickname":     account.Nickname,
+		"accessToken":  account.AccessToken,
+		"refreshToken": account.RefreshToken,
+		"clientId":     account.ClientID,
+		"clientSecret": account.ClientSecret,
+		"authMethod":   account.AuthMethod,
+		"provider":     account.Provider,
+		"region":       account.Region,
+		"expiresAt":    account.ExpiresAt,
+		"machineId":    account.MachineId,
+		"weight":       account.Weight,
+		"proxyURL":     account.ProxyURL,
+		"enabled":      account.Enabled,
+		"banStatus":    account.BanStatus,
+		"banReason":    account.BanReason,
+		"banTime":      account.BanTime,
+		"lastRefresh":  account.LastRefresh,
+		// Complete /getUsageLimits response (subscription / usage / trial /
+		// overage charges). The UI parses nested fields on demand.
+		"usageData":    rawUsageOrNull(account.UsageData),
+		"requestCount": stats.RequestCount,
+		"errorCount":   stats.ErrorCount,
+		"totalTokens":  stats.TotalTokens,
+		"totalCredits": stats.TotalCredits,
+		"lastUsed":     stats.LastUsed,
 	}
 
 	json.NewEncoder(w).Encode(result)
@@ -3919,9 +3889,12 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 			authMethod = "IdC"
 		}
 
+		// 从 UsageData 解析订阅 / 用量（取代已删除的扁平字段）
+		usage := parseUsageData(a.UsageData)
+
 		// 映射订阅类型
 		subType := "Free"
-		rawType := strings.ToUpper(a.SubscriptionType)
+		rawType := strings.ToUpper(usage.SubscriptionType)
 		if strings.Contains(rawType, "PRO_PLUS") || strings.Contains(rawType, "PROPLUS") {
 			subType = "Pro_Plus"
 		} else if strings.Contains(rawType, "PRO") {
@@ -3950,12 +3923,12 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 			},
 			Subscription: ExportSubscription{
 				Type:  subType,
-				Title: a.SubscriptionTitle,
+				Title: usage.SubscriptionTitle,
 			},
 			Usage: ExportUsage{
-				Current:     a.UsageCurrent,
-				Limit:       a.UsageLimit,
-				PercentUsed: a.UsagePercent,
+				Current:     usage.UsageCurrent,
+				Limit:       usage.UsageLimit,
+				PercentUsed: usage.UsagePercent,
 				LastUpdated: time.Now().UnixMilli(),
 			},
 			Tags:       []string{},
@@ -3974,6 +3947,71 @@ func (h *Handler) apiExportAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(data)
+}
+
+// rawUsageOrNull returns the raw usage JSON as-is so the admin UI receives the
+// nested /getUsageLimits object, or nil (→ JSON null) when an account has not
+// been refreshed yet. Avoids emitting an invalid empty RawMessage.
+func rawUsageOrNull(raw json.RawMessage) interface{} {
+	if len(raw) == 0 {
+		return nil
+	}
+	return raw
+}
+
+// parsedUsage holds the scalar usage/subscription fields the export endpoint
+// needs, parsed on demand from an account's raw UsageData.
+type parsedUsage struct {
+	SubscriptionType  string
+	SubscriptionTitle string
+	UsageCurrent      float64
+	UsageLimit        float64
+	UsagePercent      float64
+}
+
+// parseUsageData extracts subscription + usage scalars from a raw
+// /getUsageLimits response. Empty/invalid data yields a zero value. The full
+// response is still stored verbatim in UsageData; this is only for consumers
+// (like account export) that need flat numbers.
+func parseUsageData(usageData json.RawMessage) parsedUsage {
+	var out parsedUsage
+	if len(usageData) == 0 {
+		return out
+	}
+	var response UsageLimitsResponse
+	if err := json.Unmarshal(usageData, &response); err != nil {
+		return out
+	}
+
+	if response.SubscriptionInfo != nil {
+		titleOrType := response.SubscriptionInfo.SubscriptionTitle
+		if titleOrType == "" {
+			titleOrType = response.SubscriptionInfo.Type
+		}
+		out.SubscriptionType = parseSubscriptionType(titleOrType)
+		out.SubscriptionTitle = response.SubscriptionInfo.SubscriptionTitle
+	}
+
+	// Prefer the CREDIT / AGENTIC_REQUEST breakdown; fall back to the first.
+	var breakdown *UsageBreakdown
+	for i := range response.UsageBreakdownList {
+		rt := response.UsageBreakdownList[i].ResourceType
+		if rt == "CREDIT" || rt == "AGENTIC_REQUEST" {
+			breakdown = &response.UsageBreakdownList[i]
+			break
+		}
+	}
+	if breakdown == nil && len(response.UsageBreakdownList) > 0 {
+		breakdown = &response.UsageBreakdownList[0]
+	}
+	if breakdown != nil {
+		out.UsageCurrent = breakdown.CurrentUsage
+		out.UsageLimit = breakdown.UsageLimit
+		if breakdown.UsageLimit > 0 {
+			out.UsagePercent = breakdown.CurrentUsage / breakdown.UsageLimit
+		}
+	}
+	return out
 }
 
 func clampInt(v, min, max int) int {

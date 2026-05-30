@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"io"
 	"kiro-go/config"
 	"net/http"
@@ -34,11 +35,11 @@ func TestResolveProfileArnFetchesAndCachesProfile(t *testing.T) {
 		t.Fatalf("init config: %v", err)
 	}
 	account := config.Account{
-		ID:           "acct-1",
-		Email:        "user@example.com",
-		AccessToken:  "access-token",
-		Region:       "us-east-1",
-		UsageCurrent: 7,
+		ID:          "acct-1",
+		Email:       "user@example.com",
+		AccessToken: "access-token",
+		Region:      "us-east-1",
+		UsageData:   json.RawMessage(`{"usageBreakdownList":[{"resourceType":"CREDIT","currentUsage":7,"usageLimit":100}]}`),
 	}
 	if err := config.AddAccount(account); err != nil {
 		t.Fatalf("add account: %v", err)
@@ -65,7 +66,7 @@ func TestResolveProfileArnFetchesAndCachesProfile(t *testing.T) {
 	t.Cleanup(func() { InitKiroHttpClient("") })
 
 	requestAccount := account
-	requestAccount.UsageCurrent = 0
+	requestAccount.UsageData = nil
 	got, err := ResolveProfileArn(&requestAccount)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -84,8 +85,9 @@ func TestResolveProfileArnFetchesAndCachesProfile(t *testing.T) {
 	if accounts[0].ProfileArn != got {
 		t.Fatalf("expected persisted account profile ARN %q, got %q", got, accounts[0].ProfileArn)
 	}
-	if accounts[0].UsageCurrent != 7 {
-		t.Fatalf("expected profile cache update to preserve usage fields, got usageCurrent=%v", accounts[0].UsageCurrent)
+	wantUsage := `{"usageBreakdownList":[{"resourceType":"CREDIT","currentUsage":7,"usageLimit":100}]}`
+	if string(accounts[0].UsageData) != wantUsage {
+		t.Fatalf("expected profile cache update to preserve usage data, got %q", string(accounts[0].UsageData))
 	}
 }
 

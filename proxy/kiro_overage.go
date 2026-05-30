@@ -18,14 +18,18 @@ import (
 const kiroQAPIBase = "https://q.us-east-1.amazonaws.com"
 
 // OverageSnapshot captures the upstream Overages state for an account.
+// Raw carries the complete /getUsageLimits response so callers can persist it
+// verbatim into Account.UsageData (zero field loss); the parsed scalar fields
+// are a convenience for the GET/SET overage admin endpoints.
 type OverageSnapshot struct {
-	Status            string  `json:"status"`            // "ENABLED" | "DISABLED" | "UNKNOWN"
-	Capability        string  `json:"capability"`        // "OVERAGE_CAPABLE" | ...
-	SubscriptionTitle string  `json:"subscriptionTitle"` // e.g. "KIRO PRO+"
-	OverageCap        float64 `json:"overageCap"`        // USD upper bound
-	OverageRate       float64 `json:"overageRate"`       // per-invocation USD
-	CurrentOverages   float64 `json:"currentOverages"`   // accumulated overage USD
-	CheckedAt         int64   `json:"checkedAt"`         // Unix seconds
+	Status            string          `json:"status"`            // "ENABLED" | "DISABLED" | "UNKNOWN"
+	Capability        string          `json:"capability"`        // "OVERAGE_CAPABLE" | ...
+	SubscriptionTitle string          `json:"subscriptionTitle"` // e.g. "KIRO PRO+"
+	OverageCap        float64         `json:"overageCap"`        // USD upper bound
+	OverageRate       float64         `json:"overageRate"`       // per-invocation USD
+	CurrentOverages   float64         `json:"currentOverages"`   // accumulated overage USD
+	CheckedAt         int64           `json:"checkedAt"`         // Unix seconds
+	Raw               json.RawMessage `json:"-"`                 // full /getUsageLimits body (for persistence)
 }
 
 // upstreamOverageResponse mirrors the parts of /getUsageLimits we need for
@@ -86,6 +90,7 @@ func FetchOverageStatus(account *config.Account) (*OverageSnapshot, error) {
 	snap := &OverageSnapshot{
 		Status:    "UNKNOWN",
 		CheckedAt: time.Now().Unix(),
+		Raw:       json.RawMessage(body),
 	}
 	if parsed.OverageConfiguration != nil && parsed.OverageConfiguration.OverageStatus != "" {
 		snap.Status = strings.ToUpper(parsed.OverageConfiguration.OverageStatus)
@@ -168,18 +173,35 @@ func SetOverageStatus(account *config.Account, enabled bool) (*OverageSnapshot, 
 }
 
 // PersistOverageSnapshot writes a snapshot back to config.json for an account.
-// Returns the persist error if any (caller decides whether to surface it).
+// The complete /getUsageLimits body (snap.Raw) is stored verbatim into
+// Account.UsageData so no upstream field is lost. Because SetOverageStatus pins
+// snap.Status to the just-set value (to cover AWS read-lag right after a flip),
+// the raw body's overageConfiguration.overageStatus is patched to match before
+// persistence — otherwise the dispatch layer could read a stale switch state.
+// If the re-fetch failed (snap.Raw empty), this is a no-op and the next
+// background refresh reconciles UsageData. Returns the persist error if any.
 func PersistOverageSnapshot(accountID string, snap *OverageSnapshot) error {
-	if snap == nil {
+	if snap == nil || len(snap.Raw) == 0 {
 		return nil
 	}
-	return config.UpdateAccountOverageStatus(
-		accountID,
-		snap.Status,
-		snap.Capability,
-		snap.OverageCap,
-		snap.OverageRate,
-		snap.CurrentOverages,
-		snap.CheckedAt,
-	)
+	raw := snap.Raw
+	if snap.Status != "" && snap.Status != "UNKNOWN" {
+		if patched, err := patchOverageStatusInRaw(raw, snap.Status); err == nil {
+			raw = patched
+		}
+	}
+	return config.UpdateAccountUsageData(accountID, raw)
+}
+
+// patchOverageStatusInRaw sets overageConfiguration.overageStatus inside a raw
+// /getUsageLimits JSON object, preserving every other field. Used to keep the
+// persisted switch state consistent with the authoritative just-set value.
+func patchOverageStatusInRaw(raw json.RawMessage, status string) (json.RawMessage, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	cfg, _ := json.Marshal(map[string]string{"overageStatus": status})
+	obj["overageConfiguration"] = cfg
+	return json.Marshal(obj)
 }

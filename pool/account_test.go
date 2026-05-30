@@ -1,17 +1,32 @@
 package pool
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"kiro-go/config"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
+// usageDataJSON builds a raw /getUsageLimits response body carrying the given
+// usage limit and (optional) upstream Overages switch, for dispatch tests.
+func usageDataJSON(current, limit float64, overageStatus string) json.RawMessage {
+	overage := ""
+	if overageStatus != "" {
+		overage = fmt.Sprintf(`"overageConfiguration":{"overageStatus":%q},`, overageStatus)
+	}
+	return json.RawMessage(fmt.Sprintf(
+		`{%s"usageBreakdownList":[{"resourceType":"CREDIT","currentUsage":%g,"usageLimit":%g}]}`,
+		overage, current, limit,
+	))
+}
+
 func TestOverLimitAccountsAreSkippedByDefault(t *testing.T) {
 	p := &AccountPool{}
 	normal := config.Account{ID: "normal"}
-	overLimit := config.Account{ID: "over", UsageCurrent: 10, UsageLimit: 10}
+	overLimit := config.Account{ID: "over", UsageData: usageDataJSON(10, 10, "")}
 
 	p.accounts = []config.Account{normal, overLimit}
 
@@ -29,10 +44,8 @@ func TestOverLimitAccountsAreSkippedByDefault(t *testing.T) {
 func TestOverLimitAccountsCanBeSelectedWhenUpstreamOverageEnabled(t *testing.T) {
 	p := &AccountPool{}
 	overLimit := config.Account{
-		ID:            "over",
-		UsageCurrent:  10,
-		UsageLimit:    10,
-		OverageStatus: "ENABLED",
+		ID:        "over",
+		UsageData: usageDataJSON(10, 10, "ENABLED"),
 	}
 
 	p.accounts = []config.Account{overLimit}
@@ -49,10 +62,8 @@ func TestOverLimitAccountsCanBeSelectedWhenUpstreamOverageEnabled(t *testing.T) 
 func TestOverLimitAccountsRemainSkippedWhenUpstreamOverageDisabled(t *testing.T) {
 	p := &AccountPool{}
 	overLimit := config.Account{
-		ID:            "over",
-		UsageCurrent:  10,
-		UsageLimit:    10,
-		OverageStatus: "DISABLED",
+		ID:        "over",
+		UsageData: usageDataJSON(10, 10, "DISABLED"),
 	}
 
 	p.accounts = []config.Account{overLimit}
@@ -285,10 +296,9 @@ func TestReloadKeepsOverQuotaAccountWhenAllowOverUsage(t *testing.T) {
 		t.Fatalf("config.Init: %v", err)
 	}
 	if err := config.AddAccount(config.Account{
-		ID:           "over",
-		Enabled:      true,
-		UsageCurrent: 10,
-		UsageLimit:   10,
+		ID:        "over",
+		Enabled:   true,
+		UsageData: usageDataJSON(10, 10, ""),
 	}); err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}
@@ -310,10 +320,9 @@ func TestReloadDropsOverQuotaAccountWhenAllowOverUsageDisabled(t *testing.T) {
 		t.Fatalf("config.Init: %v", err)
 	}
 	if err := config.AddAccount(config.Account{
-		ID:           "over",
-		Enabled:      true,
-		UsageCurrent: 10,
-		UsageLimit:   10,
+		ID:        "over",
+		Enabled:   true,
+		UsageData: usageDataJSON(10, 10, ""),
 	}); err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}

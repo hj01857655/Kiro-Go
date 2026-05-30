@@ -3,6 +3,7 @@
 package pool
 
 import (
+	"encoding/json"
 	"kiro-go/config"
 	"strings"
 	"sync"
@@ -118,7 +119,7 @@ func (p *AccountPool) GetNextExcluding(excluded map[string]bool) *config.Account
 		return acc
 	}
 
-		// 无可用账号，返回冷却时间最短的（排除额度用尽的，除非允许超额）
+	// 无可用账号，返回冷却时间最短的（排除额度用尽的，除非允许超额）
 	var best *config.Account
 	var earliest time.Time
 	for i := range p.accounts {
@@ -476,21 +477,73 @@ func (p *AccountPool) GetAllAccounts() []config.Account {
 	return result
 }
 
-func isOverUsageLimit(acc config.Account) bool {
-	return acc.UsageLimit > 0 && acc.UsageCurrent >= acc.UsageLimit
+// usageInfo holds the dispatch-relevant fields parsed from an account's
+// UsageData (the raw /getUsageLimits response).
+type usageInfo struct {
+	Current       float64
+	Limit         float64
+	OverageStatus string // "ENABLED" | "DISABLED" | "" (not yet fetched)
+}
+
+// parseUsageFromData extracts usage limit + the upstream Overages switch from
+// the raw /getUsageLimits JSON. Empty/invalid data yields a zero usageInfo,
+// which is treated as "not over limit" so a not-yet-refreshed account stays
+// routable (fail-open: never silently drop an account for lack of usage data).
+func parseUsageFromData(usageData json.RawMessage) usageInfo {
+	if len(usageData) == 0 {
+		return usageInfo{}
+	}
+	var response struct {
+		OverageConfiguration *struct {
+			OverageStatus string `json:"overageStatus"`
+		} `json:"overageConfiguration"`
+		UsageBreakdownList []struct {
+			ResourceType string  `json:"resourceType"`
+			CurrentUsage float64 `json:"currentUsage"`
+			UsageLimit   float64 `json:"usageLimit"`
+		} `json:"usageBreakdownList"`
+	}
+	if err := json.Unmarshal(usageData, &response); err != nil {
+		return usageInfo{}
+	}
+
+	info := usageInfo{}
+	if response.OverageConfiguration != nil {
+		info.OverageStatus = response.OverageConfiguration.OverageStatus
+	}
+
+	// Prefer the CREDIT / AGENTIC_REQUEST breakdown; fall back to the first.
+	for _, bd := range response.UsageBreakdownList {
+		if bd.ResourceType == "CREDIT" || bd.ResourceType == "AGENTIC_REQUEST" {
+			info.Current = bd.CurrentUsage
+			info.Limit = bd.UsageLimit
+			return info
+		}
+	}
+	if len(response.UsageBreakdownList) > 0 {
+		info.Current = response.UsageBreakdownList[0].CurrentUsage
+		info.Limit = response.UsageBreakdownList[0].UsageLimit
+	}
+	return info
+}
+
+func isOverUsageLimit(u usageInfo) bool {
+	return u.Limit > 0 && u.Current >= u.Limit
 }
 
 // isQuotaBlocked reports whether an over-quota account should be skipped:
-// the per-account upstream Overages switch (OverageStatus=ENABLED) and the
+// the per-account upstream Overages switch (overageStatus=ENABLED) and the
 // global allowOverUsage setting are the two ways to keep it routable.
+// Parses UsageData once per call.
 func isQuotaBlocked(acc config.Account, allowOverUsage bool) bool {
-	return isOverUsageLimit(acc) && !isUpstreamOverageEnabled(acc) && !allowOverUsage
+	u := parseUsageFromData(acc.UsageData)
+	return isOverUsageLimit(u) && !isUpstreamOverageEnabled(u) && !allowOverUsage
 }
 
-// isUpstreamOverageEnabled reports whether the upstream Overages switch is ON for this account.
+// isUpstreamOverageEnabled reports whether the upstream Overages switch is ON.
 // "ENABLED" → true; anything else (DISABLED, UNKNOWN, empty) → false.
-func isUpstreamOverageEnabled(acc config.Account) bool {
-	return strings.EqualFold(acc.OverageStatus, "ENABLED")
+func isUpstreamOverageEnabled(u usageInfo) bool {
+	return strings.EqualFold(u.OverageStatus, "ENABLED")
 }
 
 func effectiveWeight(weight int) int {

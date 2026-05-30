@@ -17,7 +17,6 @@ import EditApiKeyModal from './components/EditApiKeyModal'
 import ConfirmDialog from './components/ConfirmDialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Button } from './components/ui/button'
-import { normalizeAccount } from './lib/accountStats'
 import {
   NavigationMenu,
   NavigationMenuList,
@@ -118,7 +117,7 @@ function AppContent() {
       })
       if (res.ok) {
         const data = await res.json()
-        setAccounts(Array.isArray(data) ? data.map(normalizeAccount) : [])
+        setAccounts(Array.isArray(data) ? data : [])
       }
     } catch (e) {
       console.error('Failed to load accounts:', e)
@@ -372,7 +371,7 @@ function AppContent() {
       })
       if (res.ok) {
         const data = await res.json()
-        setAccountDetail(normalizeAccount(data))
+        setAccountDetail(data)
         setDetailOpen(true)
       } else {
         notify.error(t('messages.loadDetailError'))
