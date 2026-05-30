@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { parseUpstreamDate } from '../lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
 import { Badge } from './ui/badge'
 import { Separator } from './ui/separator'
@@ -241,7 +242,10 @@ export default function AccountDetailModal({ open, onOpenChange, account, passwo
                             <div>
                               <p className="text-xs text-muted-foreground">重置时间</p>
                               <p className="font-medium text-foreground">
-                                {usage.nextDateReset ? new Date(usage.nextDateReset * 1000).toLocaleDateString('zh-CN') : '-'}
+                                {(() => {
+                                  const d = parseUpstreamDate(usage.nextDateReset)
+                                  return d ? d.toLocaleDateString('zh-CN') : '-'
+                                })()}
                               </p>
                             </div>
                           </div>
@@ -323,14 +327,17 @@ export default function AccountDetailModal({ open, onOpenChange, account, passwo
                                 {usage.freeTrialInfo.currentUsage.toFixed(2)} / {usage.freeTrialInfo.usageLimit.toFixed(0)}
                               </span>
                             </div>
-                            {usage.freeTrialInfo.freeTrialExpiry && (
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground">试用到期</span>
-                                <span className="font-semibold text-foreground">
-                                  {new Date(Number(usage.freeTrialInfo.freeTrialExpiry) * 1000).toLocaleDateString('zh-CN')}
-                                </span>
-                              </div>
-                            )}
+                            {usage.freeTrialInfo.freeTrialExpiry && (() => {
+                              const d = parseUpstreamDate(usage.freeTrialInfo.freeTrialExpiry)
+                              return d ? (
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-muted-foreground">试用到期</span>
+                                  <span className="font-semibold text-foreground">
+                                    {d.toLocaleDateString('zh-CN')}
+                                  </span>
+                                </div>
+                              ) : null
+                            })()}
                           </div>
                         )}
 

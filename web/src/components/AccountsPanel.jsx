@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { exportToJSON, exportToCSV, copyToClipboard } from '../lib/utils'
+import { exportToJSON, exportToCSV, copyToClipboard, parseUpstreamDate } from '../lib/utils'
 import ImportAccountsModal from './ImportAccountsModal'
 import {
   DropdownMenu,
@@ -682,19 +682,22 @@ export default function AccountsPanel({
                           )}
 
                           {/* 重置时间 */}
-                          {breakdown.nextDateReset && (
-                            <div className="flex items-center gap-0.5 text-xs text-muted-foreground pt-0.5 border-t border-border">
-                              <Clock className="w-2.5 h-2.5" />
-                              <span>
-                                {new Date(breakdown.nextDateReset * 1000).toLocaleString('zh-CN', {
-                                  month: '2-digit',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </span>
-                            </div>
-                          )}
+                          {(() => {
+                            const d = parseUpstreamDate(breakdown.nextDateReset)
+                            return d ? (
+                              <div className="flex items-center gap-0.5 text-xs text-muted-foreground pt-0.5 border-t border-border">
+                                <Clock className="w-2.5 h-2.5" />
+                                <span>
+                                  {d.toLocaleString('zh-CN', {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </span>
+                              </div>
+                            ) : null
+                          })()}
                         </div>
                       )}
                     </div>
