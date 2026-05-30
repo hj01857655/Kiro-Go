@@ -156,7 +156,7 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
                   </Badge>
                 </div>
               </div>
-              <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
+              <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-md flex items-center justify-center shadow-lg">
                 <Key className="w-7 h-7 text-white" />
               </div>
             </div>
@@ -176,7 +176,7 @@ export default function DashboardPanel({ password, accounts, apiKeys }) {
                   </Badge>
                 </div>
               </div>
-              <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg">
+              <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 rounded-md flex items-center justify-center shadow-lg">
                 <Activity className="w-7 h-7 text-white" />
               </div>
             </div>
