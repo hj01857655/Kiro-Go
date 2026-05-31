@@ -97,16 +97,17 @@ func TestOpenAIToKiroPreservesStructuredAssistantAndToolContent(t *testing.T) {
 		t.Fatalf("expected assistant structured content to be preserved, got %q", historyAssistant.Content)
 	}
 
+	// The tool result answers call_1, but the last history assistant has no
+	// matching structured tool call (it is text-only), so the tool result is an
+	// orphan. Kiro's upstream rejects structured tool results that do not answer
+	// the immediately preceding assistant tool call, so it must be narrated into
+	// the current message text rather than kept structured.
 	cur := payload.ConversationState.CurrentMessage.UserInputMessage
 	if !strings.Contains(cur.Content, "tool-result-structured") {
 		t.Fatalf("expected tool-result continuation content, got %q", cur.Content)
 	}
-	if cur.UserInputMessageContext == nil || len(cur.UserInputMessageContext.ToolResults) != 1 {
-		t.Fatalf("expected one tool result in current context")
-	}
-	gotToolText := cur.UserInputMessageContext.ToolResults[0].Content[0].Text
-	if gotToolText != "tool-result-structured" {
-		t.Fatalf("expected structured tool result text, got %q", gotToolText)
+	if cur.UserInputMessageContext != nil && len(cur.UserInputMessageContext.ToolResults) != 0 {
+		t.Fatalf("expected orphan tool result to be flattened into text, not kept structured")
 	}
 }
 
@@ -156,15 +157,26 @@ func TestOpenAIToKiroAssistantToolCallsDoNotInjectPlaceholder(t *testing.T) {
 	}
 
 	payload := OpenAIToKiro(req, false)
-	if len(payload.ConversationState.History) < 2 {
-		t.Fatalf("expected history with assistant tool call")
-	}
-	assistant := payload.ConversationState.History[1].AssistantResponseMessage
-	if assistant == nil {
-		t.Fatalf("expected assistant history entry")
-	}
-	if assistant.Content != "" {
-		t.Fatalf("expected empty assistant content for tool-call-only turn, got %q", assistant.Content)
+
+	// The mid-history assistant turn carried ONLY a tool call (no text) and is
+	// not the active tool turn, so its structured toolUses are cleared. That
+	// leaves it hollow, and a hollow assistant turn is dropped entirely rather
+	// than backfilled with a "." placeholder (which the model would imitate).
+	// No surviving turn may contain tool-invocation text or structured toolUses.
+	for i, h := range payload.ConversationState.History {
+		a := h.AssistantResponseMessage
+		if a == nil {
+			continue
+		}
+		if len(a.ToolUses) != 0 {
+			t.Fatalf("history[%d] retains structured toolUses", i)
+		}
+		if strings.Contains(a.Content, "get_weather") || strings.Contains(a.Content, "[Called tool") {
+			t.Fatalf("history[%d] assistant contains tool-invocation text: %q", i, a.Content)
+		}
+		if strings.TrimSpace(a.Content) == "." || strings.TrimSpace(a.Content) == "" {
+			t.Fatalf("history[%d] is a hollow assistant turn that should have been dropped", i)
+		}
 	}
 }
 
