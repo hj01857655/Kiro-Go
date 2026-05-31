@@ -357,39 +357,89 @@ func buildClaudeSystemPrompt(system interface{}, thinking bool) string {
 
 // applyPromptFilters applies all enabled prompt filter rules to the system prompt.
 // Order: (1) Claude Code detection → full replacement, (2) strip boundary markers,
-// (3) strip env noise, (4) user-defined regex/line-filter rules.
+// (3) strip env noise, (4) user-defined regex/line-filter rules,
+// (5) additive injections (persona presets / standing instructions).
 func applyPromptFilters(prompt string) string {
+	return applyPromptFiltersWithConfig(prompt, config.GetPromptFilterConfig())
+}
+
+// applyPromptFiltersWithConfig is the parameterized core used by applyPromptFilters
+// and the dry-run preview admin endpoint. Accepting an explicit snapshot lets the
+// UI preview "what-if" results before the operator commits configuration changes.
+func applyPromptFiltersWithConfig(prompt string, cfg config.PromptFilterConfig) string {
 	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
-		return ""
-	}
 
 	// 1. Detect Claude Code CLI system prompt → replace with minimal backend prompt.
 	//    Run before other filters so we don't waste time stripping a prompt we'll replace anyway.
-	if config.GetFilterClaudeCode() && isClaudeCodeSystemPrompt(prompt) {
-		return claudeCodeBackendPrompt
+	if prompt != "" && cfg.FilterClaudeCode && isClaudeCodeSystemPrompt(prompt) {
+		prompt = claudeCodeBackendPrompt
+		// Fall through so injections still apply on top of the backend prompt.
 	}
 
-	// 2. Strip --- SYSTEM PROMPT --- / --- END SYSTEM PROMPT --- boundary markers.
-	if config.GetFilterStripBoundaries() {
-		prompt = stripBoundaryMarkers(prompt)
-	}
-
-	// 3. Strip environment metadata lines (git status, env sections, etc.).
-	if config.GetFilterEnvNoise() {
-		prompt = stripEnvNoiseLines(prompt)
-	}
-
-	// 4. User-defined rules (regex find/replace or line-level substring filter).
-	rules := config.GetPromptFilterRules()
-	for _, rule := range rules {
-		if !rule.Enabled || prompt == "" {
-			continue
+	if prompt != "" {
+		// 2. Strip --- SYSTEM PROMPT --- / --- END SYSTEM PROMPT --- boundary markers.
+		if cfg.FilterStripBoundaries {
+			prompt = stripBoundaryMarkers(prompt)
 		}
-		prompt = applyFilterRule(prompt, rule)
+
+		// 3. Strip environment metadata lines (git status, env sections, etc.).
+		if cfg.FilterEnvNoise {
+			prompt = stripEnvNoiseLines(prompt)
+		}
+
+		// 4. User-defined rules (regex find/replace or line-level substring filter).
+		for _, rule := range cfg.Rules {
+			if !rule.Enabled || prompt == "" {
+				continue
+			}
+			prompt = applyFilterRule(prompt, rule)
+		}
 	}
+
+	// 5. Additive injections (persona/output-style/standing instructions).
+	//    Run unconditionally — a "prefix" injection on an empty prompt becomes
+	//    the system prompt itself, which is exactly the operator's intent.
+	prompt = applyPromptInjections(prompt, cfg.Injections)
 
 	return strings.TrimSpace(prompt)
+}
+
+// applyPromptInjections appends/prefixes additive text blocks to the (already
+// filtered) prompt. Disabled or empty-content injections are skipped.
+// Position semantics:
+//   - "prefix": inject before the existing prompt (operator content takes precedence)
+//   - "append" / unknown / empty: inject after (default; trailing instruction style)
+//
+// Multiple injections preserve list order. Each injection is separated by a
+// blank line from neighbouring content for readability.
+func applyPromptInjections(prompt string, injections []config.PromptInjection) string {
+	if len(injections) == 0 {
+		return prompt
+	}
+	var prefixes, suffixes []string
+	for _, inj := range injections {
+		if !inj.Enabled {
+			continue
+		}
+		content := strings.TrimSpace(inj.Content)
+		if content == "" {
+			continue
+		}
+		switch inj.Position {
+		case "prefix":
+			prefixes = append(prefixes, content)
+		default: // "append", "", or unknown → treat as append (safer default)
+			suffixes = append(suffixes, content)
+		}
+	}
+
+	parts := make([]string, 0, len(prefixes)+1+len(suffixes))
+	parts = append(parts, prefixes...)
+	if trimmed := strings.TrimSpace(prompt); trimmed != "" {
+		parts = append(parts, trimmed)
+	}
+	parts = append(parts, suffixes...)
+	return strings.Join(parts, "\n\n")
 }
 
 // applyFilterRule applies a single user-defined filter rule.
@@ -758,10 +808,13 @@ func convertClaudeTools(tools []ClaudeTool) ([]KiroToolWrapper, map[string]strin
 		return nil, nil
 	}
 
+	descInjections := config.GetToolDescriptionInjections()
 	result := make([]KiroToolWrapper, 0, len(tools))
 	nameMap := make(map[string]string)
 	for _, tool := range tools {
-		desc := tool.Description
+		// Apply description injections BEFORE the maxToolDescLen truncation so
+		// the appended policy is present in the final payload (mirrors kiro.rs).
+		desc := applyToolDescriptionInjections(tool.Description, tool.Name, descInjections)
 		if len(desc) > maxToolDescLen {
 			desc = desc[:maxToolDescLen] + "..."
 		}
@@ -1962,12 +2015,13 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		return nil
 	}
 
+	descInjections := config.GetToolDescriptionInjections()
 	result := make([]KiroToolWrapper, 0, len(tools))
 	for _, tool := range tools {
 		if tool.Type != "function" {
 			continue
 		}
-		desc := tool.Function.Description
+		desc := applyToolDescriptionInjections(tool.Function.Description, tool.Function.Name, descInjections)
 		if len(desc) > maxToolDescLen {
 			desc = desc[:maxToolDescLen] + "..."
 		}
@@ -1983,6 +2037,44 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		result = append(result, wrapper)
 	}
 	return result
+}
+
+// applyToolDescriptionInjections appends suffix text to a tool's description for
+// every enabled injection rule whose ToolNames list contains the (case-insensitive)
+// original tool name. Multiple matching rules are concatenated in list order with
+// a newline between blocks. Inspired by kiro.rs's hardcoded Write/Edit chunked
+// policy — generalized to operator-configurable rules.
+func applyToolDescriptionInjections(desc, toolName string, rules []config.ToolDescriptionInjection) string {
+	if len(rules) == 0 || strings.TrimSpace(toolName) == "" {
+		return desc
+	}
+	lower := strings.ToLower(strings.TrimSpace(toolName))
+	out := desc
+	for _, rule := range rules {
+		if !rule.Enabled {
+			continue
+		}
+		suffix := strings.TrimSpace(rule.Suffix)
+		if suffix == "" {
+			continue
+		}
+		matched := false
+		for _, n := range rule.ToolNames {
+			if strings.ToLower(strings.TrimSpace(n)) == lower {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if strings.TrimSpace(out) == "" {
+			out = suffix
+		} else {
+			out = out + "\n" + suffix
+		}
+	}
+	return out
 }
 
 // ==================== Kiro -> OpenAI 转换 ====================

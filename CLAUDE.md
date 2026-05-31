@@ -72,6 +72,40 @@ go test ./... -count=1
 
 ---
 
-## 5. 语言
+## 5. 前端 admin 面板（web/）已知坑
+
+- **`notify` 必须用 `useNotification()` hook 拿，不是全局变量。** 用法固定两步：
+  顶部 `import { useNotification } from './ui/notification'`，组件体内 `const notify = useNotification()`。
+  漏了就运行时崩 `ReferenceError: notify is not defined`（点按钮才触发，构建检查不出来）。
+  已修过 `AddAccountModal.jsx`、`ImportAccountsModal.jsx`，新组件用 `notify.success/error` 前先确认这两行都在。
+- IAM Identity Center tab 的 region 下拉：列表对齐 Kiro IDE 内置 `aws` 商业分区（`extension.js` endpoints 元数据），
+  默认 `us-east-1`；排除 `aws-global`（伪区域，OIDC 端点不存在）和 cn/gov/iso 特殊分区。
+
+---
+
+## 6. Kiro IDE 协议笔记（从 extension.js 逆出来的，便于对齐）
+
+- **`clientIdHash` 只是 IDE 本地缓存文件名，跟任何网络请求无关。** 算法：`sha1(JSON.stringify({startUrl}))` 的 hex，
+  即对字符串 `{"startUrl":"..."}` 整段做 SHA1。例：`view.awsapps.com/start`→`e909a0580879b06ece1202964fbe9dda95ea4ce3`，
+  企业 `d-90660ceab3.awsapps.com/start`→`a96ec6ff09e0c558ceca191cdaa0ff2b0e4e3e35`。
+  用途仅是定位 `~/.aws/sso/cache/<clientIdHash>.json`（IDE 按 startUrl 缓存 OIDC client 注册 `{clientId,clientSecret,expiresAt}`）。
+  **OAuth 注册 / 设备授权 / 授权码换 token / 刷新 token 全程都不带它**，AWS 只认 clientId/clientSecret/refreshToken 的真实值。
+  我们项目把 clientId/secret 直接平铺存进 Account，所以这个 hash 对运行时无用——仅当要"读 IDE 本地缓存文件导入账号"时才需要算它定位文件。
+- 固定 startUrl：BuilderId = `https://view.awsapps.com/start`；Amazon 内部 = `https://amzn.awsapps.com/start`。
+- **IDE 本地缓存是两个文件配合（实测）**，IdC 账号缺一不可：
+  - `kiro-auth-token.json`（按账号）：`{accessToken, refreshToken, expiresAt, clientIdHash, authMethod:"IdC", provider:"Enterprise", region}`。
+    注意 `expiresAt` 这里是 access token 的过期（约 8h），`authMethod` 是大写 `"IdC"`，`region` 真实存在别忽略。
+  - `<clientIdHash>.json`（按 startUrl 共享）：`{clientId, clientSecret, expiresAt}`，`clientSecret` 是个 JWT，
+    payload 里能解出 `initiateLoginUri`（= startUrl）、scopes 等；`expiresAt` 是 client 注册过期（约 90d）。
+  - 光有 token 文件无法导入 IdC——`clientIdHash` 是指向 client 文件的外键，clientId/secret 只在那个文件里。
+- **"本地缓存"导入 tab 字段映射（前端文件字段优先，缺失才回退下拉/默认）**：
+  `region`/`provider`/`authMethod` 一律先取 `kiro-auth-token.json` 里的值，否则会出两个坑——region 永远被后端兜底成
+  `us-east-1`、Enterprise 账号被错标成 BuilderId（profileArn 走错分支）。`isSocial` 也先看文件 `authMethod==="social"`
+  再看 provider，避免 social 账号被强制要 Client JSON。后端 `apiImportCredentials` 已能标准化（`enterprise/builderid→idc`、
+  `google/github→social`）并以"一次成功刷新"为导入前提（本地 accessToken 的 TTL 不可信，盲存会让账号被判过期而废掉）。
+
+---
+
+## 7. 语言
 
 **用中文回复。**

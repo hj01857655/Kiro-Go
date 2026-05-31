@@ -2330,6 +2330,8 @@ func (h *Handler) handleAdminAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiGetPromptFilter(w, r)
 	case path == "/prompt-filter" && r.Method == "POST":
 		h.apiUpdatePromptFilter(w, r)
+	case path == "/prompt-filter/preview" && r.Method == "POST":
+		h.apiPreviewPromptFilter(w, r)
 	case path == "/version" && r.Method == "GET":
 		h.apiGetVersion(w, r)
 	case path == "/export" && r.Method == "POST":
@@ -3199,10 +3201,12 @@ func (h *Handler) apiGetPromptFilter(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) apiUpdatePromptFilter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		FilterClaudeCode      *bool                      `json:"filterClaudeCode,omitempty"`
-		FilterEnvNoise        *bool                      `json:"filterEnvNoise,omitempty"`
-		FilterStripBoundaries *bool                      `json:"filterStripBoundaries,omitempty"`
-		Rules                 *[]config.PromptFilterRule `json:"rules,omitempty"`
+		FilterClaudeCode          *bool                              `json:"filterClaudeCode,omitempty"`
+		FilterEnvNoise            *bool                              `json:"filterEnvNoise,omitempty"`
+		FilterStripBoundaries     *bool                              `json:"filterStripBoundaries,omitempty"`
+		Rules                     *[]config.PromptFilterRule         `json:"rules,omitempty"`
+		Injections                *[]config.PromptInjection          `json:"injections,omitempty"`
+		ToolDescriptionInjections *[]config.ToolDescriptionInjection `json:"toolDescriptionInjections,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(400)
@@ -3216,6 +3220,8 @@ func (h *Handler) apiUpdatePromptFilter(w http.ResponseWriter, r *http.Request) 
 	fen := current.FilterEnvNoise
 	fsb := current.FilterStripBoundaries
 	rules := current.Rules
+	injections := current.Injections
+	toolDescInj := current.ToolDescriptionInjections
 	if req.FilterClaudeCode != nil {
 		fcc = *req.FilterClaudeCode
 	}
@@ -3228,12 +3234,80 @@ func (h *Handler) apiUpdatePromptFilter(w http.ResponseWriter, r *http.Request) 
 	if req.Rules != nil {
 		rules = *req.Rules
 	}
-	if err := config.UpdatePromptFilterConfig(fcc, fen, fsb, rules); err != nil {
+	if req.Injections != nil {
+		injections = *req.Injections
+	}
+	if req.ToolDescriptionInjections != nil {
+		toolDescInj = *req.ToolDescriptionInjections
+	}
+	if err := config.UpdatePromptFilterConfig(fcc, fen, fsb, rules, injections, toolDescInj); err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+// apiPreviewPromptFilter runs the full filter+injection chain against a sample
+// prompt without persisting any configuration. The request may include any
+// subset of filter fields to "what-if" preview unsaved changes; missing fields
+// fall back to the currently saved values. Returns both the original and
+// post-filter strings so the UI can render a side-by-side diff. When sampleTool
+// fields are supplied, also returns the post-injection tool description so
+// operators can verify chunked-policy / per-tool rules.
+func (h *Handler) apiPreviewPromptFilter(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Prompt                    string                             `json:"prompt"`
+		SampleToolName            string                             `json:"sampleToolName,omitempty"`
+		SampleToolDescription     string                             `json:"sampleToolDescription,omitempty"`
+		FilterClaudeCode          *bool                              `json:"filterClaudeCode,omitempty"`
+		FilterEnvNoise            *bool                              `json:"filterEnvNoise,omitempty"`
+		FilterStripBoundaries     *bool                              `json:"filterStripBoundaries,omitempty"`
+		Rules                     *[]config.PromptFilterRule         `json:"rules,omitempty"`
+		Injections                *[]config.PromptInjection          `json:"injections,omitempty"`
+		ToolDescriptionInjections *[]config.ToolDescriptionInjection `json:"toolDescriptionInjections,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON"})
+		return
+	}
+
+	// Fill missing fields from currently saved config so partial overrides work.
+	preview := config.GetPromptFilterConfig()
+	if req.FilterClaudeCode != nil {
+		preview.FilterClaudeCode = *req.FilterClaudeCode
+	}
+	if req.FilterEnvNoise != nil {
+		preview.FilterEnvNoise = *req.FilterEnvNoise
+	}
+	if req.FilterStripBoundaries != nil {
+		preview.FilterStripBoundaries = *req.FilterStripBoundaries
+	}
+	if req.Rules != nil {
+		preview.Rules = *req.Rules
+	}
+	if req.Injections != nil {
+		preview.Injections = *req.Injections
+	}
+	if req.ToolDescriptionInjections != nil {
+		preview.ToolDescriptionInjections = *req.ToolDescriptionInjections
+	}
+
+	resp := map[string]interface{}{
+		"original": req.Prompt,
+		"filtered": applyPromptFiltersWithConfig(req.Prompt, preview),
+	}
+
+	// Tool description preview — only run when the operator supplied a name.
+	// Description may be empty (pure injection on a blank desc is a valid case).
+	if strings.TrimSpace(req.SampleToolName) != "" {
+		resp["toolName"] = req.SampleToolName
+		resp["toolDescriptionOriginal"] = req.SampleToolDescription
+		resp["toolDescriptionFiltered"] = applyToolDescriptionInjections(req.SampleToolDescription, req.SampleToolName, preview.ToolDescriptionInjections)
+	}
+
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
