@@ -53,6 +53,9 @@
     "import": "Batch Import",
     "refresh": "Refresh",
     "refreshAll": "Refresh All",
+    "refreshModels": "Refresh Models",
+    "refreshModelsSuccess": "Refreshed models for {{count}} accounts",
+    "refreshModelsError": "Failed to refresh models",
     "noAccounts": "No accounts yet",
     "addFirst": "Click the button above to add your first account",
     "noMatch": "No matching accounts found",
@@ -75,7 +78,8 @@
       "idc": "IdC Auth",
       "social": "Social Auth",
       "highUsage": "High Usage (>80%)",
-      "overage": "Overage"
+      "overage": "Overage",
+      "banned": "Banned"
     },
     "sort": {
       "label": "Sort",
@@ -362,7 +366,14 @@
     "save": "Save Settings",
     "saveSuccess": "Settings saved successfully",
     "saveError": "Failed to save settings",
-    "loadError": "Failed to load settings"
+    "loadError": "Failed to load settings",
+    "resetStats": "Reset Statistics",
+    "resetStatsDesc": "Clear global request statistics (total requests, success/failure, tokens, credits). Per-account and per-key cumulative data are unaffected.",
+    "resettingStats": "Resetting...",
+    "resetStatsSuccess": "Statistics reset",
+    "resetStatsError": "Failed to reset statistics",
+    "resetStatsConfirmTitle": "Confirm Reset Statistics",
+    "resetStatsConfirmDesc": "Are you sure you want to clear global request statistics? This action cannot be undone."
   },
   "common": {
     "loading": "Loading...",

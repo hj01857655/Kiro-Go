@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { parseUpstreamDate } from '../lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog'
 import { Badge } from './ui/badge'
+import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { ScrollArea } from './ui/scroll-area'
 import { Switch } from './ui/switch'
@@ -9,12 +10,60 @@ import { useNotification } from './ui/notification'
 import {
   User, Mail, Key, Globe, Activity, Calendar,
   TrendingUp, Shield, Server, Hash, DollarSign,
-  AlertCircle, CheckCircle2, Clock, Zap
+  AlertCircle, CheckCircle2, Clock, Zap, RefreshCw, Loader2
 } from 'lucide-react'
 
 export default function AccountDetailModal({ open, onOpenChange, account, password, onRefresh }) {
   const notify = useNotification()
   const [overageLoading, setOverageLoading] = useState(false)
+
+  // 模型列表来自 pool 的运行时缓存（GET /models/cached），不是 account.availableModels
+  // —— 后端 /full 接口并不返回该字段，旧代码读它永远为空。
+  const [models, setModels] = useState([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsRefreshing, setModelsRefreshing] = useState(false)
+
+  // 打开弹窗（或切换账号）时拉取已缓存的模型列表
+  useEffect(() => {
+    if (!open || !account?.id) return
+    let cancelled = false
+    setModelsLoading(true)
+    fetch(`/admin/api/accounts/${account.id}/models/cached`, {
+      headers: { 'X-Admin-Password': password }
+    })
+      .then(res => res.ok ? res.json() : { models: [] })
+      .then(data => { if (!cancelled) setModels(Array.isArray(data.models) ? data.models : []) })
+      .catch(() => { if (!cancelled) setModels([]) })
+      .finally(() => { if (!cancelled) setModelsLoading(false) })
+    return () => { cancelled = true }
+  }, [open, account?.id, password])
+
+  const refreshModels = async () => {
+    if (!account?.id) return
+    setModelsRefreshing(true)
+    try {
+      const res = await fetch(`/admin/api/accounts/${account.id}/models/refresh`, {
+        method: 'POST',
+        headers: { 'X-Admin-Password': password }
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      // 刷新成功后立即重新拉取缓存，就地回显最新模型
+      const cachedRes = await fetch(`/admin/api/accounts/${account.id}/models/cached`, {
+        headers: { 'X-Admin-Password': password }
+      })
+      const cached = await cachedRes.json().catch(() => ({ models: [] }))
+      const list = Array.isArray(cached.models) ? cached.models : []
+      setModels(list)
+      notify.success(`已刷新 ${list.length} 个模型`)
+    } catch (e) {
+      notify.error('刷新模型失败: ' + e.message)
+    } finally {
+      setModelsRefreshing(false)
+    }
+  }
 
   if (!account) return null
 
@@ -442,25 +491,53 @@ export default function AccountDetailModal({ open, onOpenChange, account, passwo
             </div>
           </div>
 
-          {/* 可用模型 */}
-          {account.availableModels && account.availableModels.length > 0 && (
-            <>
-              <Separator />
-              <div>
-                <h3 className="text-base font-semibold mb-3 flex items-center gap-2 text-foreground">
+          {/* 可用模型（来自 pool 运行时缓存，可手动刷新） */}
+          <>
+            <Separator />
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-semibold flex items-center gap-2 text-foreground">
                   <Server className="w-4 h-4" />
                   可用模型
+                  {models.length > 0 && (
+                    <Badge variant="secondary" className="text-xs px-2 py-0">{models.length}</Badge>
+                  )}
                 </h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={refreshModels}
+                  disabled={modelsRefreshing}
+                  className="border-2 border-border hover:border-purple-500 dark:hover:border-purple-400"
+                >
+                  {modelsRefreshing ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  刷新模型
+                </Button>
+              </div>
+              {modelsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  加载中...
+                </div>
+              ) : models.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
-                  {account.availableModels.map((model) => (
+                  {models.map((model) => (
                     <Badge key={model} variant="outline" className="font-mono text-xs px-3 py-1">
                       {model}
                     </Badge>
                   ))}
                 </div>
-              </div>
-            </>
-          )}
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">
+                  暂无缓存的模型列表，点击「刷新模型」拉取
+                </p>
+              )}
+            </div>
+          </>
           </div>
         </ScrollArea>
       </DialogContent>

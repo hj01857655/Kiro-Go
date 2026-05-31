@@ -53,6 +53,9 @@
     "import": "批量导入",
     "refresh": "刷新",
     "refreshAll": "全部刷新",
+    "refreshModels": "刷新模型",
+    "refreshModelsSuccess": "已刷新 {{count}} 个账户的模型",
+    "refreshModelsError": "刷新模型失败",
     "noAccounts": "暂无账户",
     "addFirst": "点击上方按钮添加第一个账户",
     "noMatch": "未找到匹配的账户",
@@ -75,7 +78,8 @@
       "idc": "IdC认证",
       "social": "Social认证",
       "highUsage": "高用量(>80%)",
-      "overage": "超额使用"
+      "overage": "超额使用",
+      "banned": "已封禁"
     },
     "sort": {
       "label": "排序",
@@ -362,7 +366,14 @@
     "save": "保存设置",
     "saveSuccess": "设置保存成功",
     "saveError": "设置保存失败",
-    "loadError": "加载设置失败"
+    "loadError": "加载设置失败",
+    "resetStats": "重置统计",
+    "resetStatsDesc": "清零全局请求统计（总请求数、成功/失败、Token、积分）。账户与密钥的累计数据不受影响。",
+    "resettingStats": "重置中...",
+    "resetStatsSuccess": "统计已重置",
+    "resetStatsError": "重置统计失败",
+    "resetStatsConfirmTitle": "确认重置统计",
+    "resetStatsConfirmDesc": "确定要清零全局请求统计吗？此操作无法撤销。"
   },
   "common": {
     "loading": "加载中...",

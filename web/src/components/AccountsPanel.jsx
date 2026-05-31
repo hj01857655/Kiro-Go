@@ -10,7 +10,7 @@ import {
   RefreshCw, Trash2, Power, Plus, Search,
   Eye, Loader2, Activity, Download, Upload,
   Check, X, Copy, Mail, Clock, ChevronDown, ChevronUp,
-  CheckCircle2, TrendingUp
+  CheckCircle2, TrendingUp, Server
 } from 'lucide-react'
 import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -67,6 +67,28 @@ export default function AccountsPanel({
   const [expandedCards, setExpandedCards] = useState({}) // 记录哪些卡片展开了用量详情
   const [overageLoading, setOverageLoading] = useState({})
   const [showImportModal, setShowImportModal] = useState(false)
+  const [refreshingModels, setRefreshingModels] = useState(false)
+
+  // 为所有已启用账号刷新模型路由缓存（后端单次调用 /accounts/models/refresh）
+  const handleRefreshAllModels = async () => {
+    setRefreshingModels(true)
+    try {
+      const res = await fetch('/admin/api/accounts/models/refresh', {
+        method: 'POST',
+        headers: { 'X-Admin-Password': password }
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      const data = await res.json().catch(() => ({}))
+      notify.success(t('accounts.refreshModelsSuccess', { count: data.refreshed ?? 0 }))
+    } catch (e) {
+      notify.error(t('accounts.refreshModelsError') + ': ' + e.message)
+    } finally {
+      setRefreshingModels(false)
+    }
+  }
 
   const toggleCardExpand = (id) => {
     setExpandedCards(prev => ({
@@ -182,7 +204,8 @@ export default function AccountsPanel({
       (filterStatus === 'idc' && acc.authMethod === 'idc') ||
       (filterStatus === 'social' && acc.authMethod === 'social') ||
       (filterStatus === 'high-usage' && getUsagePercent(acc) > 80) ||
-      (filterStatus === 'overage' && hasOverage(acc))
+      (filterStatus === 'overage' && hasOverage(acc)) ||
+      (filterStatus === 'banned' && !!acc.banStatus && acc.banStatus !== 'NONE')
 
     return matchesSearch && matchesFilter
   })
@@ -273,6 +296,7 @@ export default function AccountsPanel({
                     <SelectItem value="social">{t('accounts.filters.social')}</SelectItem>
                     <SelectItem value="high-usage">{t('accounts.filters.highUsage')}</SelectItem>
                     <SelectItem value="overage">{t('accounts.filters.overage')}</SelectItem>
+                    <SelectItem value="banned">{t('accounts.filters.banned')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
@@ -315,6 +339,10 @@ export default function AccountsPanel({
                 <Button onClick={onRefresh} variant="outline" disabled={loading} className="border-2 border-border btn-scale">
                   <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">{t('accounts.refresh')}</span>
+                </Button>
+                <Button onClick={handleRefreshAllModels} variant="outline" disabled={refreshingModels} className="border-2 border-border btn-scale" title={t('accounts.refreshModels')}>
+                  <Server className={`w-4 h-4 sm:mr-2 ${refreshingModels ? 'animate-pulse' : ''}`} />
+                  <span className="hidden sm:inline">{t('accounts.refreshModels')}</span>
                 </Button>
                 <Button
                   onClick={onAdd}

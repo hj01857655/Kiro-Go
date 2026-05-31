@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Switch } from './ui/switch'
 import { Textarea } from './ui/textarea'
-import { Trash2, Plus } from 'lucide-react'
+import { Trash2, Plus, RotateCcw } from 'lucide-react'
+import ConfirmDialog from './ConfirmDialog'
 
 export default function SettingsPanel({ password }) {
   const { t } = useTranslation()
@@ -46,6 +47,30 @@ export default function SettingsPanel({ password }) {
   const [previewInput, setPreviewInput] = useState('')
   const [previewResult, setPreviewResult] = useState(null)
   const [previewing, setPreviewing] = useState(false)
+
+  // 统计重置：破坏性即时动作（不走 saveSettings），二次确认后调用 /stats/reset
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
+  const [resetting, setResetting] = useState(false)
+
+  const handleResetStats = async () => {
+    setResetting(true)
+    try {
+      const res = await fetch('/admin/api/stats/reset', {
+        method: 'POST',
+        headers: { 'X-Admin-Password': password }
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      notify.success(t('settings.resetStatsSuccess'))
+    } catch (e) {
+      notify.error(t('settings.resetStatsError') + ': ' + e.message)
+    } finally {
+      setResetting(false)
+      setResetConfirmOpen(false)
+    }
+  }
 
   useEffect(() => {
     loadSettings()
@@ -710,6 +735,30 @@ export default function SettingsPanel({ password }) {
         </CardContent>
       </Card>
 
+      {/* 统计重置（破坏性即时动作，不随保存按钮触发） */}
+      <Card className="border-0 shadow-md glass card-hover">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-red-600 to-rose-600 flex items-center justify-center shadow-md">
+              <RotateCcw className="w-4 h-4 text-white" />
+            </div>
+            {t('settings.resetStats')}
+          </CardTitle>
+          <CardDescription>{t('settings.resetStatsDesc')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="destructive"
+            onClick={() => setResetConfirmOpen(true)}
+            disabled={resetting}
+            className="shadow-sm hover:shadow-md"
+          >
+            <RotateCcw className={`w-4 h-4 mr-2 ${resetting ? 'animate-spin' : ''}`} />
+            {resetting ? t('settings.resettingStats') : t('settings.resetStats')}
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* 保存按钮 */}
       <div className="flex gap-3 justify-end">
         <Button
@@ -727,6 +776,17 @@ export default function SettingsPanel({ password }) {
           {saving ? t('settings.saving') : t('settings.save')}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        title={t('settings.resetStatsConfirmTitle')}
+        description={t('settings.resetStatsConfirmDesc')}
+        variant="destructive"
+        confirmText={t('common.confirm')}
+        cancelText={t('common.cancel')}
+        onConfirm={handleResetStats}
+      />
     </div>
   )
 }
