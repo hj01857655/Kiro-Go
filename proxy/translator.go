@@ -219,13 +219,21 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 
 		if msg.Role == "user" {
 			content, images, toolResults := extractClaudeUserContent(msg.Content)
-			content = normalizeUserContent(content, len(images) > 0)
 
 			if isLast {
-				currentContent = content
+				// Keep the raw (trimmed) text for the current message. The image
+				// placeholder is intentionally NOT applied here: the finalContent
+				// decision below picks between real text, flattened tool-result
+				// continuation, and the image placeholder in priority order.
+				// Injecting the placeholder now would shadow tool-result text that
+				// must survive (e.g. an orphaned tool turn whose result carried both
+				// text and an image — the image rides on Images, the text must still
+				// reach the model via the continuation).
+				currentContent = strings.TrimSpace(content)
 				currentImages = images
 				currentToolResults = toolResults
 			} else {
+				content = normalizeUserContent(content, len(images) > 0)
 				userMsg := KiroUserInputMessage{
 					Content: content,
 					ModelID: modelID,
@@ -292,13 +300,20 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 
 	// 构建最终内容
 	finalContent := ""
-	if currentContent != "" {
+	switch {
+	case currentContent != "":
 		finalContent = currentContent
-	} else if len(currentImages) > 0 {
-		finalContent = normalizeUserContent("", true)
-	} else if len(currentToolResults) > 0 {
+	case len(currentToolResults) > 0:
+		// Tool-result text must reach the model — flattened here for an orphan turn
+		// (whose structured results are dropped), or mirroring the attached results
+		// for an active turn (see TestToolResultsContinuationIncludesInstructionPrefix).
+		// This beats the bare image placeholder: an image already rides on Images, so
+		// using the placeholder here would silently drop tool-result text that shares
+		// the turn with an image.
 		finalContent = buildToolResultsContinuation(currentToolResults)
-	} else {
+	case len(currentImages) > 0:
+		finalContent = normalizeUserContent("", true)
+	default:
 		finalContent = minimalFallbackUserContent
 	}
 
@@ -1288,11 +1303,17 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	// 构建最终内容
 	finalContent := currentContent
 	if finalContent == "" {
-		if len(currentImages) > 0 {
-			finalContent = normalizeUserContent("", true)
-		} else if len(currentToolResults) > 0 {
+		switch {
+		case len(currentToolResults) > 0:
+			// Tool-result text must reach the model — flattened here for an orphan
+			// turn, or mirroring the attached results for an active turn. This beats
+			// the bare image placeholder: an image already rides on Images, so using
+			// the placeholder here would silently drop tool-result text that shares
+			// the turn with an image (see ClaudeToKiro for the same ordering).
 			finalContent = buildToolResultsContinuation(currentToolResults)
-		} else {
+		case len(currentImages) > 0:
+			finalContent = normalizeUserContent("", true)
+		default:
 			finalContent = minimalFallbackUserContent
 		}
 	}

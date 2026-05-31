@@ -668,3 +668,75 @@ func TestOpenAIToolResultImageCarriedToHistory(t *testing.T) {
 		t.Fatalf("tool image must not leak into the later user message, got %d", len(cur.Images))
 	}
 }
+
+// Regression: an orphaned tool_result (no matching assistant tool_use, e.g.
+// after context compaction) that carries BOTH text and an image. Adding image
+// extraction once shadowed the tool text: a non-empty Images slice drove the
+// final content to the bare image placeholder, skipping the tool-result
+// continuation and silently dropping the text. The image rides on Images; the
+// text must still reach the model via the flattened continuation.
+func TestClaudeOrphanToolResultTextAndImageBothSurvive(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Messages: []ClaudeMessage{
+			{
+				Role: "user",
+				Content: []interface{}{
+					map[string]interface{}{
+						"type":        "tool_result",
+						"tool_use_id": "orphan_mixed",
+						"content": []interface{}{
+							map[string]interface{}{"type": "text", "text": "ORPHAN_TEXT_MARKER"},
+							map[string]interface{}{
+								"type": "image",
+								"source": map[string]interface{}{
+									"type":       "base64",
+									"media_type": "image/png",
+									"data":       toolResultImgPNG,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cur := ClaudeToKiro(req, false).ConversationState.CurrentMessage.UserInputMessage
+	if len(cur.Images) != 1 {
+		t.Fatalf("expected orphan tool_result image carried, got %d", len(cur.Images))
+	}
+	if !strings.Contains(cur.Content, "ORPHAN_TEXT_MARKER") {
+		t.Fatalf("orphan tool text must survive in flattened content, got %q", cur.Content)
+	}
+}
+
+// Regression (OpenAI path): the final message is a tool turn whose content
+// carries both text and an image, with no matching assistant tool_use (orphan).
+// The image must ride on the current message's Images while the tool text
+// survives via the continuation rather than being shadowed by the placeholder.
+func TestOpenAIOrphanToolResultTextAndImageBothSurvive(t *testing.T) {
+	const dataURL = "data:image/png;base64," + toolResultImgPNG
+	req := &OpenAIRequest{
+		Model: "claude-sonnet-4.5",
+		Messages: []OpenAIMessage{
+			{Role: "user", Content: "look"},
+			{
+				Role:       "tool",
+				ToolCallID: "orphan_call",
+				Content: []interface{}{
+					map[string]interface{}{"type": "text", "text": "ORPHAN_OAI_MARKER"},
+					map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": dataURL}},
+				},
+			},
+		},
+	}
+
+	cur := OpenAIToKiro(req, false).ConversationState.CurrentMessage.UserInputMessage
+	if len(cur.Images) != 1 {
+		t.Fatalf("expected orphan tool image carried on current message, got %d", len(cur.Images))
+	}
+	if !strings.Contains(cur.Content, "ORPHAN_OAI_MARKER") {
+		t.Fatalf("orphan tool text must survive in continuation, got %q", cur.Content)
+	}
+}
