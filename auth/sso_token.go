@@ -300,10 +300,16 @@ func pollForToken(oidcBase, clientID, clientSecret, deviceCode string, interval 
 	}
 }
 
+// userInfoURL 构造 getUsageLimits endpoint（含用户信息）。提成变量以便测试拦截网络调用，
+// 生产行为与原硬编码完全一致。
+var userInfoURL = func() string {
+	return "https://q.us-east-1.amazonaws.com/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
+}
+
 // GetUserInfo 获取用户信息
 func GetUserInfo(accessToken string) (email, userID string, err error) {
 	// 调用 Kiro API 获取用量信息（包含用户信息）
-	url := "https://q.us-east-1.amazonaws.com/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
+	url := userInfoURL()
 
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)

@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+// oidcTokenURL 构造 idc/builderId 刷新 endpoint。提成变量以便测试拦截网络调用，
+// 生产行为与原硬编码完全一致。
+var oidcTokenURL = func(region string) string {
+	return fmt.Sprintf("https://oidc.%s.amazonaws.com/token", region)
+}
+
+// socialTokenURL 构造 social (GitHub/Google) 刷新 endpoint。提成变量以便测试拦截。
+var socialTokenURL = func() string {
+	return "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken"
+}
+
 // RefreshToken 刷新 access token
 // Returns: accessToken, refreshToken, expiresAt, profileArn, error
 func RefreshToken(account *config.Account) (string, string, int64, string, error) {
@@ -35,7 +46,7 @@ func refreshOIDCToken(refreshToken, clientID, clientSecret, region string, clien
 		region = "us-east-1"
 	}
 
-	url := fmt.Sprintf("https://oidc.%s.amazonaws.com/token", region)
+	url := oidcTokenURL(region)
 
 	payload := map[string]string{
 		"clientId":     clientID,
@@ -76,7 +87,7 @@ func refreshOIDCToken(refreshToken, clientID, clientSecret, region string, clien
 
 // refreshSocialToken Social (GitHub/Google) token 刷新
 func refreshSocialToken(refreshToken string, client *http.Client) (string, string, int64, string, error) {
-	url := "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken"
+	url := socialTokenURL()
 
 	payload := map[string]string{
 		"refreshToken": refreshToken,
