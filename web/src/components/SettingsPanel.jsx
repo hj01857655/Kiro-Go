@@ -37,17 +37,13 @@ export default function SettingsPanel({ password }) {
     filterEnvNoise: false,
     filterStripBoundaries: false,
     rules: [],
-    injections: [],
-    toolDescriptionInjections: []
+    injections: []
   })
 
   // Dry-run preview state — tied to /admin/api/prompt-filter/preview.
   // The textarea holds the operator's sample system prompt; result holds the
   // post-filter+inject string returned by the backend.
   const [previewInput, setPreviewInput] = useState('')
-  // Optional sample tool name + description for tool-description-injection preview.
-  const [previewToolName, setPreviewToolName] = useState('')
-  const [previewToolDesc, setPreviewToolDesc] = useState('')
   const [previewResult, setPreviewResult] = useState(null)
   const [previewing, setPreviewing] = useState(false)
 
@@ -116,8 +112,7 @@ export default function SettingsPanel({ password }) {
           filterEnvNoise: !!data.filterEnvNoise,
           filterStripBoundaries: !!data.filterStripBoundaries,
           rules: Array.isArray(data.rules) ? data.rules : [],
-          injections: Array.isArray(data.injections) ? data.injections : [],
-          toolDescriptionInjections: Array.isArray(data.toolDescriptionInjections) ? data.toolDescriptionInjections : []
+          injections: Array.isArray(data.injections) ? data.injections : []
         })
       }
     } catch (e) {
@@ -250,71 +245,6 @@ export default function SettingsPanel({ password }) {
     setPromptFilter({ ...promptFilter, injections: list })
   }
 
-  // ----- Tool description injection list management. Mirrors injection
-  // helpers above; ToolNames is a comma-separated string in the UI for ergonomics. -----
-  const addToolDescInjection = () => {
-    setPromptFilter({
-      ...promptFilter,
-      toolDescriptionInjections: [
-        ...(promptFilter.toolDescriptionInjections || []),
-        {
-          id: `td-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          name: '',
-          toolNames: [],
-          suffix: '',
-          enabled: true
-        }
-      ]
-    })
-  }
-
-  const removeToolDescInjection = (idx) => {
-    setPromptFilter({
-      ...promptFilter,
-      toolDescriptionInjections: (promptFilter.toolDescriptionInjections || []).filter((_, i) => i !== idx)
-    })
-  }
-
-  const updateToolDescInjection = (idx, field, value) => {
-    const list = [...(promptFilter.toolDescriptionInjections || [])]
-    list[idx] = { ...list[idx], [field]: value }
-    setPromptFilter({ ...promptFilter, toolDescriptionInjections: list })
-  }
-
-  // Insert kiro.rs's hardcoded chunked-write policy as ready-to-tweak presets.
-  // The Write/Edit suffixes mitigate Kiro upstream "Write Failed" truncation by
-  // teaching the model to chunk large outputs proactively. The system policy
-  // injection prevents the model from negotiating around the chunking limits.
-  const presetChunkedWritePolicy = () => {
-    const sys = {
-      id: `inj-${Date.now()}-sys`,
-      name: 'Chunked Write Policy (system)',
-      position: 'append',
-      content: 'When the Write or Edit tool has content size limits, always comply silently. Never suggest bypassing these limits via alternative tools. Never ask the user whether to switch approaches. Complete all chunked operations without commentary.',
-      enabled: true
-    }
-    const writeRule = {
-      id: `td-${Date.now()}-write`,
-      name: 'Write chunking',
-      toolNames: ['Write'],
-      suffix: '- IMPORTANT: If the content to write exceeds 150 lines, you MUST only write the first 50 lines using this tool, then use `Edit` tool to append the remaining content in chunks of no more than 50 lines each. If needed, leave a unique placeholder to help append content. Do NOT attempt to write all content at once.',
-      enabled: true
-    }
-    const editRule = {
-      id: `td-${Date.now()}-edit`,
-      name: 'Edit chunking',
-      toolNames: ['Edit'],
-      suffix: '- IMPORTANT: If the `new_string` content exceeds 50 lines, you MUST split it into multiple Edit calls, each replacing no more than 50 lines at a time. If used to append content, leave a unique placeholder to help append content. On the final chunk, do NOT include the placeholder.',
-      enabled: true
-    }
-    setPromptFilter({
-      ...promptFilter,
-      injections: [...(promptFilter.injections || []), sys],
-      toolDescriptionInjections: [...(promptFilter.toolDescriptionInjections || []), writeRule, editRule]
-    })
-    notify.success(t('settings.presetInserted'))
-  }
-
   // Send the current (possibly unsaved) filter+injection state plus the sample
   // prompt to the dry-run endpoint. Lets operators verify behaviour before
   // committing changes via Save.
@@ -329,14 +259,11 @@ export default function SettingsPanel({ password }) {
         },
         body: JSON.stringify({
           prompt: previewInput,
-          sampleToolName: previewToolName,
-          sampleToolDescription: previewToolDesc,
           filterClaudeCode: promptFilter.filterClaudeCode,
           filterEnvNoise: promptFilter.filterEnvNoise,
           filterStripBoundaries: promptFilter.filterStripBoundaries,
           rules: promptFilter.rules || [],
-          injections: promptFilter.injections || [],
-          toolDescriptionInjections: promptFilter.toolDescriptionInjections || []
+          injections: promptFilter.injections || []
         })
       })
       if (!res.ok) {
@@ -656,15 +583,6 @@ export default function SettingsPanel({ password }) {
           <CardDescription>{t('settings.injectionsDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button
-            variant="outline"
-            onClick={presetChunkedWritePolicy}
-            className="border-2 border-border hover:border-amber-500 dark:hover:border-amber-400"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            {t('settings.presetChunkedWrite')}
-          </Button>
-          <p className="text-xs text-muted-foreground">{t('settings.presetChunkedWriteHelp')}</p>
           {(promptFilter.injections || []).map((inj, idx) => (
             <Card key={inj.id || idx} className="border-2 border-border/50 glass">
               <CardContent className="pt-6 space-y-4">
@@ -741,94 +659,6 @@ export default function SettingsPanel({ password }) {
         </CardContent>
       </Card>
 
-      {/* 工具描述注入（按工具名匹配，往 description 末尾追加文本） */}
-      <Card className="border-0 shadow-md glass card-hover">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-yellow-600 to-amber-600 flex items-center justify-center shadow-md">
-              <span className="text-white text-sm font-bold">{t('settings.toolDescIcon')}</span>
-            </div>
-            {t('settings.toolDescInjections')}
-          </CardTitle>
-          <CardDescription>{t('settings.toolDescInjectionsDesc')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(promptFilter.toolDescriptionInjections || []).map((td, idx) => (
-            <Card key={td.id || idx} className="border-2 border-border/50 glass">
-              <CardContent className="pt-6 space-y-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id={`td-enabled-${idx}`}
-                      checked={td.enabled !== false}
-                      onCheckedChange={(checked) => updateToolDescInjection(idx, 'enabled', checked)}
-                    />
-                    <Label htmlFor={`td-enabled-${idx}`} className="cursor-pointer">
-                      {td.enabled !== false ? t('settings.injectionEnabled') : t('settings.injectionDisabled')}
-                    </Label>
-                  </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => removeToolDescInjection(idx)}
-                    className="shadow-sm hover:shadow-md"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    {t('settings.deleteInjection')}
-                  </Button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>{t('settings.injectionName')}</Label>
-                    <Input
-                      type="text"
-                      placeholder={t('settings.toolDescNamePlaceholder')}
-                      value={td.name || ''}
-                      onChange={(e) => updateToolDescInjection(idx, 'name', e.target.value)}
-                      className="border-2 focus:border-amber-500 dark:focus:border-amber-400"
-                    />
-                  </div>
-                  <div>
-                    <Label>{t('settings.toolDescToolNames')}</Label>
-                    <Input
-                      type="text"
-                      placeholder="Write, Edit"
-                      value={(td.toolNames || []).join(', ')}
-                      onChange={(e) => updateToolDescInjection(
-                        idx,
-                        'toolNames',
-                        e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                      )}
-                      className="border-2 focus:border-amber-500 dark:focus:border-amber-400 font-mono text-xs"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">{t('settings.toolDescToolNamesHelp')}</p>
-                  </div>
-                </div>
-                <div>
-                  <Label>{t('settings.toolDescSuffix')}</Label>
-                  <Textarea
-                    rows={4}
-                    placeholder={t('settings.toolDescSuffixPlaceholder')}
-                    value={td.suffix || ''}
-                    onChange={(e) => updateToolDescInjection(idx, 'suffix', e.target.value)}
-                    className="border-2 focus:border-amber-500 dark:focus:border-amber-400 font-mono text-xs"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">{t('settings.toolDescSuffixHelp')}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          <Button
-            variant="outline"
-            onClick={addToolDescInjection}
-            className="border-2 border-border hover:border-amber-500 dark:hover:border-amber-400"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            {t('settings.addToolDescInjection')}
-          </Button>
-        </CardContent>
-      </Card>
-
       {/* 预览（dry-run，不持久化）*/}
       <Card className="border-0 shadow-md glass card-hover">
         <CardHeader>
@@ -850,29 +680,6 @@ export default function SettingsPanel({ password }) {
               onChange={(e) => setPreviewInput(e.target.value)}
               className="border-2 focus:border-cyan-500 dark:focus:border-cyan-400 font-mono text-xs"
             />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>{t('settings.previewToolName')}</Label>
-              <Input
-                type="text"
-                placeholder="Write"
-                value={previewToolName}
-                onChange={(e) => setPreviewToolName(e.target.value)}
-                className="border-2 focus:border-cyan-500 dark:focus:border-cyan-400"
-              />
-              <p className="text-xs text-muted-foreground mt-1">{t('settings.previewToolNameHelp')}</p>
-            </div>
-            <div>
-              <Label>{t('settings.previewToolDesc')}</Label>
-              <Input
-                type="text"
-                placeholder={t('settings.previewToolDescPlaceholder')}
-                value={previewToolDesc}
-                onChange={(e) => setPreviewToolDesc(e.target.value)}
-                className="border-2 focus:border-cyan-500 dark:focus:border-cyan-400 font-mono text-xs"
-              />
-            </div>
           </div>
           <Button
             variant="outline"
@@ -898,22 +705,6 @@ export default function SettingsPanel({ password }) {
                   </pre>
                 </div>
               </div>
-              {previewResult.toolName && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground">{t('settings.previewToolDescOriginal')} ({previewResult.toolName})</Label>
-                    <pre className="rounded-md border-2 border-border/50 bg-muted/30 p-3 text-xs font-mono whitespace-pre-wrap break-words max-h-96 overflow-auto">
-                      {previewResult.toolDescriptionOriginal || ''}
-                    </pre>
-                  </div>
-                  <div>
-                    <Label className="text-cyan-600 dark:text-cyan-400">{t('settings.previewToolDescFiltered')}</Label>
-                    <pre className="rounded-md border-2 border-cyan-500/40 bg-cyan-500/5 p-3 text-xs font-mono whitespace-pre-wrap break-words max-h-96 overflow-auto">
-                      {previewResult.toolDescriptionFiltered || ''}
-                    </pre>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </CardContent>

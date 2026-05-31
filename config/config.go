@@ -115,23 +115,6 @@ type PromptInjection struct {
 	Enabled  bool   `json:"enabled"`  // Whether this injection is active
 }
 
-// ToolDescriptionInjection appends operator-defined text to the description of
-// matching tools before the request is sent upstream. This is the second
-// injection axis (alongside PromptInjection on the system prompt) borrowed from
-// kiro.rs, where Write/Edit tools get a chunked-output policy appended to their
-// descriptions to avoid Kiro upstream Write Failed truncation.
-//
-// ToolNames are matched case-insensitively against the original (pre-sanitize)
-// tool name. An empty ToolNames list never matches — operators must opt in
-// explicitly.
-type ToolDescriptionInjection struct {
-	ID        string   `json:"id"`        // Unique identifier
-	Name      string   `json:"name"`      // Human-readable label
-	ToolNames []string `json:"toolNames"` // Case-insensitive exact match; empty = never match
-	Suffix    string   `json:"suffix"`    // Text appended to the tool's description (with a newline separator)
-	Enabled   bool     `json:"enabled"`   // Whether this rule is active
-}
-
 // ApiKeyEntry represents a single API key with optional usage limits and counters.
 // Limits with value 0 are treated as "no limit". Counters are cumulative and never reset
 // automatically; operators can use the admin endpoint to manually reset them.
@@ -212,11 +195,6 @@ type Config struct {
 	// PromptInjections is a list of additive text blocks injected into the system prompt
 	// after sanitization (persona presets, output-style directives, etc.).
 	PromptInjections []PromptInjection `json:"promptInjections,omitempty"`
-
-	// ToolDescriptionInjections appends operator-defined text to specific tool
-	// descriptions (matched by name) before the request is sent upstream. Used
-	// for instructing the model on tool usage policies (e.g. chunked Write/Edit).
-	ToolDescriptionInjections []ToolDescriptionInjection `json:"toolDescriptionInjections,omitempty"`
 
 	// LogLevel controls verbosity of application logs.
 	// Accepted values: "debug", "info", "warn", "error". Defaults to "info".
@@ -783,12 +761,11 @@ func GetFilterStripBoundaries() bool {
 
 // PromptFilterConfig holds all prompt filter settings for API responses.
 type PromptFilterConfig struct {
-	FilterClaudeCode          bool                       `json:"filterClaudeCode"`
-	FilterEnvNoise            bool                       `json:"filterEnvNoise"`
-	FilterStripBoundaries     bool                       `json:"filterStripBoundaries"`
-	Rules                     []PromptFilterRule         `json:"rules"`
-	Injections                []PromptInjection          `json:"injections"`
-	ToolDescriptionInjections []ToolDescriptionInjection `json:"toolDescriptionInjections"`
+	FilterClaudeCode      bool               `json:"filterClaudeCode"`
+	FilterEnvNoise        bool               `json:"filterEnvNoise"`
+	FilterStripBoundaries bool               `json:"filterStripBoundaries"`
+	Rules                 []PromptFilterRule `json:"rules"`
+	Injections            []PromptInjection  `json:"injections"`
 }
 
 // GetPromptFilterConfig returns all prompt filter settings.
@@ -797,30 +774,26 @@ func GetPromptFilterConfig() PromptFilterConfig {
 	defer cfgLock.RUnlock()
 	if cfg == nil {
 		return PromptFilterConfig{
-			Rules:                     []PromptFilterRule{},
-			Injections:                []PromptInjection{},
-			ToolDescriptionInjections: []ToolDescriptionInjection{},
+			Rules:      []PromptFilterRule{},
+			Injections: []PromptInjection{},
 		}
 	}
 	rules := make([]PromptFilterRule, len(cfg.PromptFilterRules))
 	copy(rules, cfg.PromptFilterRules)
 	injections := make([]PromptInjection, len(cfg.PromptInjections))
 	copy(injections, cfg.PromptInjections)
-	toolDescInj := make([]ToolDescriptionInjection, len(cfg.ToolDescriptionInjections))
-	copy(toolDescInj, cfg.ToolDescriptionInjections)
 	return PromptFilterConfig{
-		FilterClaudeCode:          cfg.FilterClaudeCode || cfg.SanitizeClaudeCodePrompt,
-		FilterEnvNoise:            cfg.FilterEnvNoise,
-		FilterStripBoundaries:     cfg.FilterStripBoundaries,
-		Rules:                     rules,
-		Injections:                injections,
-		ToolDescriptionInjections: toolDescInj,
+		FilterClaudeCode:      cfg.FilterClaudeCode || cfg.SanitizeClaudeCodePrompt,
+		FilterEnvNoise:        cfg.FilterEnvNoise,
+		FilterStripBoundaries: cfg.FilterStripBoundaries,
+		Rules:                 rules,
+		Injections:            injections,
 	}
 }
 
 // UpdatePromptFilterConfig saves all prompt filter settings atomically.
-// Passing nil for rules / injections / toolDescInjections leaves the existing value untouched.
-func UpdatePromptFilterConfig(filterClaudeCode, filterEnvNoise, filterStripBoundaries bool, rules []PromptFilterRule, injections []PromptInjection, toolDescInjections []ToolDescriptionInjection) error {
+// Passing nil for rules / injections leaves the existing value untouched.
+func UpdatePromptFilterConfig(filterClaudeCode, filterEnvNoise, filterStripBoundaries bool, rules []PromptFilterRule, injections []PromptInjection) error {
 	cfgLock.Lock()
 	defer cfgLock.Unlock()
 	cfg.FilterClaudeCode = filterClaudeCode
@@ -833,9 +806,6 @@ func UpdatePromptFilterConfig(filterClaudeCode, filterEnvNoise, filterStripBound
 	}
 	if injections != nil {
 		cfg.PromptInjections = injections
-	}
-	if toolDescInjections != nil {
-		cfg.ToolDescriptionInjections = toolDescInjections
 	}
 	return Save()
 }
@@ -863,19 +833,6 @@ func GetPromptInjections() []PromptInjection {
 	injections := make([]PromptInjection, len(cfg.PromptInjections))
 	copy(injections, cfg.PromptInjections)
 	return injections
-}
-
-// GetToolDescriptionInjections returns the current tool description injection
-// rules. Returned slice is a defensive copy.
-func GetToolDescriptionInjections() []ToolDescriptionInjection {
-	cfgLock.RLock()
-	defer cfgLock.RUnlock()
-	if cfg == nil {
-		return nil
-	}
-	rules := make([]ToolDescriptionInjection, len(cfg.ToolDescriptionInjections))
-	copy(rules, cfg.ToolDescriptionInjections)
-	return rules
 }
 
 // ThinkingConfig holds settings for AI thinking/reasoning mode.

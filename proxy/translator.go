@@ -808,13 +808,10 @@ func convertClaudeTools(tools []ClaudeTool) ([]KiroToolWrapper, map[string]strin
 		return nil, nil
 	}
 
-	descInjections := config.GetToolDescriptionInjections()
 	result := make([]KiroToolWrapper, 0, len(tools))
 	nameMap := make(map[string]string)
 	for _, tool := range tools {
-		// Apply description injections BEFORE the maxToolDescLen truncation so
-		// the appended policy is present in the final payload (mirrors kiro.rs).
-		desc := applyToolDescriptionInjections(tool.Description, tool.Name, descInjections)
+		desc := tool.Description
 		if len(desc) > maxToolDescLen {
 			desc = desc[:maxToolDescLen] + "..."
 		}
@@ -2015,13 +2012,12 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		return nil
 	}
 
-	descInjections := config.GetToolDescriptionInjections()
 	result := make([]KiroToolWrapper, 0, len(tools))
 	for _, tool := range tools {
 		if tool.Type != "function" {
 			continue
 		}
-		desc := applyToolDescriptionInjections(tool.Function.Description, tool.Function.Name, descInjections)
+		desc := tool.Function.Description
 		if len(desc) > maxToolDescLen {
 			desc = desc[:maxToolDescLen] + "..."
 		}
@@ -2037,44 +2033,6 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		result = append(result, wrapper)
 	}
 	return result
-}
-
-// applyToolDescriptionInjections appends suffix text to a tool's description for
-// every enabled injection rule whose ToolNames list contains the (case-insensitive)
-// original tool name. Multiple matching rules are concatenated in list order with
-// a newline between blocks. Inspired by kiro.rs's hardcoded Write/Edit chunked
-// policy — generalized to operator-configurable rules.
-func applyToolDescriptionInjections(desc, toolName string, rules []config.ToolDescriptionInjection) string {
-	if len(rules) == 0 || strings.TrimSpace(toolName) == "" {
-		return desc
-	}
-	lower := strings.ToLower(strings.TrimSpace(toolName))
-	out := desc
-	for _, rule := range rules {
-		if !rule.Enabled {
-			continue
-		}
-		suffix := strings.TrimSpace(rule.Suffix)
-		if suffix == "" {
-			continue
-		}
-		matched := false
-		for _, n := range rule.ToolNames {
-			if strings.ToLower(strings.TrimSpace(n)) == lower {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if strings.TrimSpace(out) == "" {
-			out = suffix
-		} else {
-			out = out + "\n" + suffix
-		}
-	}
-	return out
 }
 
 // ==================== Kiro -> OpenAI 转换 ====================
