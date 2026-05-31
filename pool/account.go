@@ -432,6 +432,15 @@ func (p *AccountPool) AvailableCount() int {
 	return count
 }
 
+// persistAccountStats 把账号计数器落盘到配置文件。默认异步 fire-and-forget,
+// 这样热路径请求不会在持有池锁时阻塞在一次磁盘写上(生产行为,保持不变)。
+// 测试通过 SetSyncAccountStatsPersistForTest 切成同步,确保写盘在测试体内完成、
+// 不会逃逸出去——否则滞后的 goroutine 会把 config.json 写进正被 t.TempDir 拆除的
+// 目录,随机以 "directory not empty" 打挂无关测试。
+var persistAccountStats = func(id string, requestCount, errorCount, totalTokens int, totalCredits float64, lastUsed int64) {
+	go config.UpdateAccountStats(id, requestCount, errorCount, totalTokens, totalCredits, lastUsed)
+}
+
 // UpdateStats 更新账号统计
 func (p *AccountPool) UpdateStats(id string, tokens int, credits float64) {
 	p.mu.Lock()
@@ -464,7 +473,7 @@ func (p *AccountPool) UpdateStats(id string, tokens int, credits float64) {
 		}
 	}
 	if updated {
-		go config.UpdateAccountStats(id, requestCount, errorCount, totalTokens, totalCredits, lastUsed)
+		persistAccountStats(id, requestCount, errorCount, totalTokens, totalCredits, lastUsed)
 	}
 }
 
