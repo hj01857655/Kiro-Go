@@ -1,0 +1,39 @@
+name: Go CI
+
+# 行为哨兵：每次 push / PR 跑 build + vet + test。
+# 这是 fork 维护的关键防线 —— 从 upstream cherry-pick 或 merge 后，
+# 如果 profileArn / usage 等本地逻辑被"合干净但行为顶掉"，测试会在这里当场变红。
+on:
+  push:
+    branches: [main, master, dev, feature/react-admin]
+  pull_request:
+    branches: [main, master, dev]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
