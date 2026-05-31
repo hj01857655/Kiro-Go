@@ -3711,7 +3711,10 @@ func (h *Handler) apiUpdateEndpointConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	valid := map[string]bool{"auto": true, "kiro": true, "codewhisperer": true, "amazonq": true}
+	// 空串与 "auto" 同义：GetPreferredEndpoint 读时把 "" 归一成 "auto"，
+	// getSortedEndpoints 的 default 分支也按 auto 处理，前端保存时同样发空串。
+	// 校验白名单必须接受 ""，否则会把后端自己处处视为合法的 auto 值拒成 400。
+	valid := map[string]bool{"": true, "auto": true, "kiro": true, "codewhisperer": true, "amazonq": true}
 	if !valid[req.PreferredEndpoint] {
 		w.WriteHeader(400)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid endpoint, must be: auto, kiro, codewhisperer, or amazonq"})
