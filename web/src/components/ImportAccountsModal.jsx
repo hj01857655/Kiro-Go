@@ -3,9 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Label } from './ui/label'
-import { Upload, Loader2, AlertCircle } from 'lucide-react'
+import { Upload, Loader2, AlertCircle, Braces } from 'lucide-react'
+import { useNotification } from './ui/notification'
 
 export default function ImportAccountsModal({ open, onOpenChange, password, onSuccess }) {
+  const notify = useNotification()
   const [jsonContent, setJsonContent] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -26,6 +28,18 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
       notify.error('文件读取失败')
     }
     reader.readAsText(file)
+  }
+
+  const formatJson = () => {
+    if (!jsonContent.trim()) {
+      notify.error('内容为空')
+      return
+    }
+    try {
+      setJsonContent(JSON.stringify(JSON.parse(jsonContent), null, 2))
+    } catch {
+      notify.error('JSON格式错误，无法格式化')
+    }
   }
 
   const handleImport = async () => {
@@ -144,7 +158,19 @@ export default function ImportAccountsModal({ open, onOpenChange, password, onSu
             </div>
 
             <div>
-              <Label htmlFor="jsonContent">JSON 内容</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="jsonContent">JSON 内容</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs text-muted-foreground"
+                  onClick={formatJson}
+                >
+                  <Braces className="w-3 h-3 mr-1" />
+                  格式化
+                </Button>
+              </div>
               <Textarea
                 id="jsonContent"
                 placeholder='粘贴或上传 JSON 内容...'

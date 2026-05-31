@@ -5,6 +5,7 @@ import { Badge } from './ui/badge'
 import { Separator } from './ui/separator'
 import { ScrollArea } from './ui/scroll-area'
 import { Switch } from './ui/switch'
+import { useNotification } from './ui/notification'
 import {
   User, Mail, Key, Globe, Activity, Calendar,
   TrendingUp, Shield, Server, Hash, DollarSign,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 
 export default function AccountDetailModal({ open, onOpenChange, account, password, onRefresh }) {
+  const notify = useNotification()
   const [overageLoading, setOverageLoading] = useState(false)
 
   if (!account) return null

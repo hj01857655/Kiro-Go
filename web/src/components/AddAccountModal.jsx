@@ -7,9 +7,50 @@ import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Card, CardContent } from './ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs'
-import { Upload, Loader2, Cloud, Building2, Cookie, HardDrive, Code, Globe } from 'lucide-react'
+import { Upload, Loader2, Cloud, Building2, Cookie, HardDrive, Code, Globe, Braces } from 'lucide-react'
+import { useNotification } from './ui/notification'
+
+// AWS IAM Identity Center 支持的区域（OIDC 端点 https://oidc.{region}.amazonaws.com）
+// 列表对齐 Kiro IDE 内置的 aws 商业分区（extension.js endpoints 元数据），description 取自源码原文。
+const AWS_REGIONS = [
+  { value: 'us-east-1', label: 'us-east-1 (US East, N. Virginia)' },
+  { value: 'us-east-2', label: 'us-east-2 (US East, Ohio)' },
+  { value: 'us-west-1', label: 'us-west-1 (US West, N. California)' },
+  { value: 'us-west-2', label: 'us-west-2 (US West, Oregon)' },
+  { value: 'af-south-1', label: 'af-south-1 (Africa, Cape Town)' },
+  { value: 'ap-east-1', label: 'ap-east-1 (Asia Pacific, Hong Kong)' },
+  { value: 'ap-east-2', label: 'ap-east-2 (Asia Pacific, Taipei)' },
+  { value: 'ap-northeast-1', label: 'ap-northeast-1 (Asia Pacific, Tokyo)' },
+  { value: 'ap-northeast-2', label: 'ap-northeast-2 (Asia Pacific, Seoul)' },
+  { value: 'ap-northeast-3', label: 'ap-northeast-3 (Asia Pacific, Osaka)' },
+  { value: 'ap-south-1', label: 'ap-south-1 (Asia Pacific, Mumbai)' },
+  { value: 'ap-south-2', label: 'ap-south-2 (Asia Pacific, Hyderabad)' },
+  { value: 'ap-southeast-1', label: 'ap-southeast-1 (Asia Pacific, Singapore)' },
+  { value: 'ap-southeast-2', label: 'ap-southeast-2 (Asia Pacific, Sydney)' },
+  { value: 'ap-southeast-3', label: 'ap-southeast-3 (Asia Pacific, Jakarta)' },
+  { value: 'ap-southeast-4', label: 'ap-southeast-4 (Asia Pacific, Melbourne)' },
+  { value: 'ap-southeast-5', label: 'ap-southeast-5 (Asia Pacific, Malaysia)' },
+  { value: 'ap-southeast-6', label: 'ap-southeast-6 (Asia Pacific, New Zealand)' },
+  { value: 'ap-southeast-7', label: 'ap-southeast-7 (Asia Pacific, Thailand)' },
+  { value: 'ca-central-1', label: 'ca-central-1 (Canada, Central)' },
+  { value: 'ca-west-1', label: 'ca-west-1 (Canada West, Calgary)' },
+  { value: 'eu-central-1', label: 'eu-central-1 (Europe, Frankfurt)' },
+  { value: 'eu-central-2', label: 'eu-central-2 (Europe, Zurich)' },
+  { value: 'eu-north-1', label: 'eu-north-1 (Europe, Stockholm)' },
+  { value: 'eu-south-1', label: 'eu-south-1 (Europe, Milan)' },
+  { value: 'eu-south-2', label: 'eu-south-2 (Europe, Spain)' },
+  { value: 'eu-west-1', label: 'eu-west-1 (Europe, Ireland)' },
+  { value: 'eu-west-2', label: 'eu-west-2 (Europe, London)' },
+  { value: 'eu-west-3', label: 'eu-west-3 (Europe, Paris)' },
+  { value: 'il-central-1', label: 'il-central-1 (Israel, Tel Aviv)' },
+  { value: 'me-central-1', label: 'me-central-1 (Middle East, UAE)' },
+  { value: 'me-south-1', label: 'me-south-1 (Middle East, Bahrain)' },
+  { value: 'mx-central-1', label: 'mx-central-1 (Mexico, Central)' },
+  { value: 'sa-east-1', label: 'sa-east-1 (South America, Sao Paulo)' },
+]
 
 export default function AddAccountModal({ open, onOpenChange, password, onSuccess }) {
+  const notify = useNotification()
   const [activeTab, setActiveTab] = useState('builderid')
   const [loading, setLoading] = useState(false)
 
@@ -19,6 +60,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
 
   // IAM SSO
   const [iamStartUrl, setIamStartUrl] = useState('')
+  const [iamRegion, setIamRegion] = useState('us-east-1')
   const [iamSessionId, setIamSessionId] = useState('')
   const [iamAuthUrl, setIamAuthUrl] = useState('')
   const [iamCallbackUrl, setIamCallbackUrl] = useState('')
@@ -116,7 +158,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
           'Content-Type': 'application/json',
           'X-Admin-Password': password
         },
-        body: JSON.stringify({ startUrl: iamStartUrl, region: 'us-east-1' })
+        body: JSON.stringify({ startUrl: iamStartUrl, region: iamRegion })
       })
       const data = await res.json()
       if (data.sessionId && data.authorizeUrl) {
@@ -196,6 +238,20 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
     }
   }
 
+  // 格式化 JSON 输入框：解析后用 2 空格缩进重新序列化。
+  // 空内容直接跳过，解析失败时提示并保持原文不动（不破坏用户已输入的内容）。
+  const formatJson = (value, setValue) => {
+    if (!value.trim()) {
+      notify.error('内容为空')
+      return
+    }
+    try {
+      setValue(JSON.stringify(JSON.parse(value), null, 2))
+    } catch {
+      notify.error('JSON格式错误，无法格式化')
+    }
+  }
+
   // 4. Kiro Local Cache
   const importLocalCache = async () => {
     if (!tokenJson.trim()) {
@@ -216,7 +272,11 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       return
     }
 
-    const isSocial = localProvider === 'Google' || localProvider === 'Github'
+    // 是否 social 账号优先看文件：social 的 kiro-auth-token.json 带 authMethod="social"
+    // 且无对应 <clientIdHash>.json，不应强制要求 Client JSON。文件没说才回退到下拉。
+    const fileAuthMethod = (tokenData.authMethod || '').toLowerCase()
+    const fileProvider = tokenData.provider || localProvider
+    const isSocial = fileAuthMethod === 'social' || fileProvider === 'Google' || fileProvider === 'Github'
     let clientData = null
 
     if (!isSocial) {
@@ -241,8 +301,12 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
       accessToken: tokenData.accessToken || '',
       clientId: clientData?.clientId || '',
       clientSecret: clientData?.clientSecret || '',
-      authMethod: clientData ? 'idc' : 'social',
-      provider: localProvider
+      // 文件字段优先，缺失再回退到下拉/推断：
+      // kiro-auth-token.json 实际带有 region/provider/authMethod，应原样采用，
+      // 否则 region 永远被后端兜底成 us-east-1、Enterprise 账号会被错标成 BuilderId。
+      authMethod: tokenData.authMethod || (clientData ? 'idc' : 'social'),
+      provider: tokenData.provider || localProvider,
+      region: tokenData.region || 'us-east-1'
     }
 
     setLoading(true)
@@ -299,8 +363,10 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
         accessToken: cred.accessToken || '',
         clientId: cred.clientId || '',
         clientSecret: cred.clientSecret || '',
-        authMethod: cred.clientId ? 'idc' : 'social',
-        provider: cred.provider || credentialsProvider
+        // 字段优先用 JSON 里的，缺失再回退（与本地缓存导入保持一致）
+        authMethod: cred.authMethod || (cred.clientId ? 'idc' : 'social'),
+        provider: cred.provider || credentialsProvider,
+        region: cred.region || 'us-east-1'
       }
 
       try {
@@ -377,6 +443,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
     if (pollingInterval) clearInterval(pollingInterval)
     setPollingInterval(null)
     setIamStartUrl('')
+    setIamRegion('us-east-1')
     setIamSessionId('')
     setIamAuthUrl('')
     setIamCallbackUrl('')
@@ -554,6 +621,22 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
                     />
                   </div>
 
+                  <div>
+                    <Label htmlFor="iamRegion">区域 (Region)</Label>
+                    <Select value={iamRegion} onValueChange={setIamRegion} disabled={!!iamAuthUrl}>
+                      <SelectTrigger id="iamRegion" className="font-mono text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AWS_REGIONS.map((r) => (
+                          <SelectItem key={r.value} value={r.value} className="font-mono text-sm">
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {!iamAuthUrl ? (
                     <Button
                       onClick={startIamSso}
@@ -703,6 +786,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="BuilderId">BuilderId</SelectItem>
+                        <SelectItem value="Enterprise">Enterprise</SelectItem>
                         <SelectItem value="Google">Google</SelectItem>
                         <SelectItem value="Github">Github</SelectItem>
                       </SelectContent>
@@ -710,7 +794,19 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
                   </div>
 
                   <div>
-                    <Label htmlFor="tokenJson">Token JSON (kiro-auth-token.json)</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="tokenJson">Token JSON (kiro-auth-token.json)</Label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-muted-foreground"
+                        onClick={() => formatJson(tokenJson, setTokenJson)}
+                      >
+                        <Braces className="w-3 h-3 mr-1" />
+                        格式化
+                      </Button>
+                    </div>
                     <Textarea
                       id="tokenJson"
                       placeholder='{"refreshToken":"...", "accessToken":"..."}'
@@ -723,7 +819,19 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
 
                   {localProvider !== 'Google' && localProvider !== 'Github' && (
                     <div>
-                      <Label htmlFor="clientJson">Client JSON (IdC 认证必需)</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="clientJson">Client JSON (IdC 认证必需)</Label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs text-muted-foreground"
+                          onClick={() => formatJson(clientJson, setClientJson)}
+                        >
+                          <Braces className="w-3 h-3 mr-1" />
+                          格式化
+                        </Button>
+                      </div>
                       <Textarea
                         id="clientJson"
                         placeholder='{"clientId":"...", "clientSecret":"..."}'
@@ -782,6 +890,7 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="BuilderId">BuilderId</SelectItem>
+                        <SelectItem value="Enterprise">Enterprise</SelectItem>
                         <SelectItem value="Google">Google</SelectItem>
                         <SelectItem value="Github">Github</SelectItem>
                       </SelectContent>
@@ -789,7 +898,19 @@ export default function AddAccountModal({ open, onOpenChange, password, onSucces
                   </div>
 
                   <div>
-                    <Label htmlFor="credentialsJson">Credentials JSON</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="credentialsJson">Credentials JSON</Label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-muted-foreground"
+                        onClick={() => formatJson(credentialsJson, setCredentialsJson)}
+                      >
+                        <Braces className="w-3 h-3 mr-1" />
+                        格式化
+                      </Button>
+                    </div>
                     <Textarea
                       id="credentialsJson"
                       placeholder='{"refreshToken":"...", "provider":"BuilderId"}&#10;或&#10;[{"refreshToken":"..."}, ...]'
