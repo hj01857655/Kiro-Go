@@ -35,8 +35,7 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 COPY --from=builder /app/kiro-go .
-COPY --from=builder /app/web ./web
-# 用前端阶段构建出的产物覆盖 web/dist（源码树里 dist 被 gitignore，不会进镜像）
+# 运行时只读 web/dist（const webDir = "web/dist"），React 源码不进镜像。
 COPY --from=frontend /web/dist ./web/dist
 RUN mkdir -p /app/data
 
