@@ -81,6 +81,13 @@ func refreshOIDCToken(refreshToken, clientID, clientSecret, region string, clien
 		return "", "", 0, "", err
 	}
 
+	// 200 但 accessToken 为空（上游异常 / 恶意 per-account 代理返回 {} 或空体）
+	// 必须当失败处理。否则调用方会无条件用空串覆盖并持久化原本有效的 token，
+	// 把账号刷成鉴权失效。宁可让本次刷新报错走重试/失败路径，也不污染已有凭据。
+	if result.AccessToken == "" {
+		return "", "", 0, "", fmt.Errorf("refresh returned empty accessToken (HTTP 200)")
+	}
+
 	expiresAt := time.Now().Unix() + int64(result.ExpiresIn)
 	return result.AccessToken, result.RefreshToken, expiresAt, result.ProfileArn, nil
 }
@@ -117,6 +124,11 @@ func refreshSocialToken(refreshToken string, client *http.Client) (string, strin
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", "", 0, "", err
+	}
+
+	// 同 refreshOIDCToken：200 空 accessToken 视为失败，避免空串覆盖有效凭据。
+	if result.AccessToken == "" {
+		return "", "", 0, "", fmt.Errorf("social refresh returned empty accessToken (HTTP 200)")
 	}
 
 	expiresAt := time.Now().Unix() + int64(result.ExpiresIn)
