@@ -174,8 +174,12 @@ var fixedProfileArns = map[string]string{
 }
 
 // getFixedProfileArn 返回该 provider 对应的硬编码 profileArn（若有）。
-// 对齐 IDE getFixedProfileArn：social 账号若 token 自带 profileArn 则优先用自己的，
-// 否则回退到固定表的值。这里 account.ProfileArn 即对应 token 自带的 profileArn。
+//
+// IDE 的 getFixedProfileArn 对 social(Github/Google)账号会优先返回 token
+// 自带的 profileArn，再回退固定值。本实现里那条 social 分支【够不到】：
+// ResolveProfileArn 第一步「缓存优先」已经在 account.ProfileArn 非空时直接
+// 返回了，而 social 账号 token 自带的 profileArn 正是存放在这个字段里。所以
+// 一旦走到这里，account.ProfileArn 必为空，无需再判 social —— 直接回固定值。
 func getFixedProfileArn(account *config.Account) (string, bool) {
 	if account == nil {
 		return "", false
@@ -183,11 +187,6 @@ func getFixedProfileArn(account *config.Account) (string, bool) {
 	fixed, ok := fixedProfileArns[account.Provider]
 	if !ok || fixed == "" {
 		return "", false
-	}
-	if account.AuthMethod == "social" {
-		if own := strings.TrimSpace(account.ProfileArn); own != "" {
-			return own, true
-		}
 	}
 	return fixed, true
 }
