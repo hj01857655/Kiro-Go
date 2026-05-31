@@ -3111,9 +3111,9 @@ func (h *Handler) apiImportCredentials(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 始终尝试用 refreshToken 刷新获取新的 accessToken
-	var accessToken string
-	var expiresAt int64
+	// 用 refreshToken 刷新获取新的 accessToken。导入必须以一次成功的刷新为前提：
+	// 本地缓存里的 accessToken 不携带可信的过期时间，盲猜短 TTL 会让账号在选号时
+	// 永远被判定为已过期而跳过，导致后台/按需刷新都无法触发（账号等于废掉）。
 	tempAccount := &config.Account{
 		RefreshToken: req.RefreshToken,
 		ClientID:     req.ClientID,
@@ -3121,23 +3121,14 @@ func (h *Handler) apiImportCredentials(w http.ResponseWriter, r *http.Request) {
 		AuthMethod:   req.AuthMethod,
 		Region:       req.Region,
 	}
-	newAccessToken, newRefreshToken, newExpiresAt, newProfileArn, err := auth.RefreshToken(tempAccount)
+	accessToken, newRefreshToken, expiresAt, newProfileArn, err := auth.RefreshToken(tempAccount)
 	if err != nil {
-		// 刷新失败，如果有传入的 accessToken 则尝试使用
-		if req.AccessToken != "" {
-			accessToken = req.AccessToken
-			expiresAt = time.Now().Unix() + 300 // 可能已过期，设短一点
-		} else {
-			w.WriteHeader(400)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Token refresh failed: " + err.Error()})
-			return
-		}
-	} else {
-		accessToken = newAccessToken
-		if newRefreshToken != "" {
-			req.RefreshToken = newRefreshToken
-		}
-		expiresAt = newExpiresAt
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Token refresh failed: " + err.Error()})
+		return
+	}
+	if newRefreshToken != "" {
+		req.RefreshToken = newRefreshToken
 	}
 
 	// 获取用户信息
